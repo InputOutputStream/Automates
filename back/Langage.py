@@ -1,6 +1,6 @@
 
 from typing import Set, Dict, List, Tuple, Optional, Union, Any
-from Mot import Mot
+from .Mot import Mot
 
 class Langage:
     """

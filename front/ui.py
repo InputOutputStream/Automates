@@ -15,10 +15,10 @@ import turtle
 import json
 
 # Import des classes métier existantes
-from Automate import Automate, ADC, AFDC, AND, AFND, AFNS
-from Etat import Etat
-from Mot import Mot
-from Langage import Langage, LangageReconnaissable
+from back.Automate import Automate, ADC, AFDC, AND, AFND, AFNS
+from back.Etat import Etat
+from back.Mot import Mot
+from back.Langage import Langage, LangageReconnaissable
 
 
 class AutomateVisualizer(ABC):

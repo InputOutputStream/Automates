@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Set, Dict, List, Tuple, Optional, Union, Any
-from Etat import Etat
-from Mot import Mot
-from Langage import Langage
+from .Etat import Etat
+from .Langage import Langage
 
 
 class Automate(ABC):

@@ -1,8 +1,8 @@
 
 from typing import Set, Dict, List, Tuple, Optional, Union, Any
-from Mot import Mot
-from Langage import Langage
-from Automate import Automate
+from .Mot import Mot
+from .Langage import Langage
+from .Automate import Automate
 
 
 class LangageReconnaissable(Langage):
