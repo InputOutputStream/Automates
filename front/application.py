@@ -1,4 +1,3 @@
-# front/application.py
 from interfaces.application_interface import Application
 from .main_window import MainWindowImpl
 import customtkinter as ctk

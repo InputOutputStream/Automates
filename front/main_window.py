@@ -1,4 +1,3 @@
-# front/main_window.py
 import customtkinter as ctk
 from interfaces.main_window_interface import MainWindow
 from .zone_saisie import ZoneSaisieImpl

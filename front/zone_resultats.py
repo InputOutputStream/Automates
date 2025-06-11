@@ -1,4 +1,3 @@
-# front/zone_resultats.py
 import customtkinter as ctk
 from interfaces.zone_resultats_interface import ZoneResultats
 from back.Automate import Automate

@@ -1,4 +1,3 @@
-# front/zone_visualisation.py
 import customtkinter as ctk
 from back.Automate import Automate
 from interfaces.zone_visualisation_interface import ZoneVisualisation

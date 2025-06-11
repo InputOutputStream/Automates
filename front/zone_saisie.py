@@ -1,4 +1,3 @@
-# front/zone_saisie.py
 import customtkinter as ctk
 from interfaces.zone_saisie_interface import ZoneSaisie
 from back.Automate import Automate

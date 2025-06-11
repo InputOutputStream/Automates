@@ -1,4 +1,3 @@
-# front/turtle_visualizer.py
 import turtle
 import tkinter as tk
 from back.Automate import Automate
