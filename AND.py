@@ -5,6 +5,9 @@ from typing import Set, Dict, List, Tuple, Optional, Union, Any
 import itertools
 from Automate import Automate,ADC
 
+AUTO = {"1": ["","a","a"],"2": ["","a","a"],"3": ["","a","a"]}
+
+
 class AND(Automate):
     """
     Automate Non Déterministe.
@@ -45,6 +48,7 @@ class AND(Automate):
     
     def determiniser(self) -> ADC:
         """Convertit en automate déterministe équivalent."""
+        
         pass
     
     def afficher(self) -> str:
