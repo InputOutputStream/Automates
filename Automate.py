@@ -14,8 +14,7 @@ class Automate(ABC):
     - fonction_transition: fonction de transition
     """
     
-    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, 
-                 etats_finaux: Set[str]) -> None:
+    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, etats_finaux: Set[str]) -> None:
         """
         Initialise l'automate avec ses composants de base.
         
@@ -71,8 +70,7 @@ class ADC(Automate):
     spécifiques aux ADC (déterminisme et complétude).
     """
     
-    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, 
-                 etats_finaux: Set[str]) -> None:
+    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, etats_finaux: Set[str]) -> None:
         """Initialise un ADC."""
         pass
     
