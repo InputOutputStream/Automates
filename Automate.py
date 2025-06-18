@@ -24,8 +24,12 @@ class Automate(ABC):
             etat_initial: État initial
             etats_finaux: Ensemble des états finaux
         """
-        pass
-    
+        self.alphabet  = alphabet
+        self.etats = etats
+        self.etat_initial = etat_initial
+        self.etat_finaux = etats_finaux
+        
+        
     @abstractmethod
     def ajouter_transition(self, etat_source: str, symbole: str, etat_cible: str) -> None:
         """Ajoute une transition à l'automate."""
