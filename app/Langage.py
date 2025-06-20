@@ -305,11 +305,11 @@ if __name__ == "__main__":
     print(f"L1 ∩ L2 = {intersection}")
     
     # Puissance
-    L1_carre = L1.puissance(2)
+    L1_carre = L1.puissance(5)
     print(f"L1² = {L1_carre}")
     
     # Étoile de Kleene tronquée
-    L1_etoile_3 = L1.kleene_tronquee(3)
+    L1_etoile_3 = L1.kleene_tronquee(7)
     print(f"L1* (tronquée à longueur 3) = {L1_etoile_3}")
     
     # Analyse du type de langage
