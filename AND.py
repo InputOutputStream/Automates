@@ -53,37 +53,29 @@ class AND(Automate):
     
     #Add 
     def get_tableau_transition(self) -> dict:
+        """
+            Fonction qui retourne le tableau de transitions d'un AND 
+        """
         tableau_transition = {}
         elements = {}
-        #for i in range(self.alphabet): 
-        #    elements.update({i:""})
-            
-        liste_etats = self.etats
-        #liste_etats = list(liste_etats)
-        
-        for etat in liste_etats:
+        liste_etats = [self.etat_initial]
+        treated = []
+        while liste_etats != []:
+            etat = liste_etats[0]
             elements = {}
             for a in self.alphabet: 
                 elements.update({a:""})
-            print(f"i: {etat}")
-            print(f"i--: {isinstance(etat,str)}")
-            print(f"tableau: {tableau_transition}")
             
             if isinstance(etat, str) == False:
                 for j in self.alphabet:
                     if j in self.Value[etat]:
                         if elements[j] == "":
                             elements[j] = self.Value[etat][j]
-                            print(f"ELEMENT_1: {self.Value[etat][j]}")
                         else:
-                            print(f"ELEMENT: {str(elements[j]) + str(self.Value[etat][j])}")
                             elements[j] = {elements[j],self.Value[etat][j]}
                         tableau_transition.update({etat: elements})
-
             else:
-                print(f"\n___ELSE___-I== {etat[0]} \n")
                 nouvel_etat = etat.split(".")
-                print(f"\n_nouvel_== {nouvel_etat} \n")
                 for t in nouvel_etat:
                     for j in self.alphabet:
                         if j in self.Value[int(t)]:
@@ -100,12 +92,16 @@ class AND(Automate):
                         for value in elements[m]:
                             nouvel_etat += "." + str(value)
                         elements[m] = nouvel_etat[1:]
-                        liste_etats.add(elements[m])
-                    print(liste_etats)
-                else:
-                    liste_etats.discard(elements[m])
+                        if elements[m] not in treated:    
+                            liste_etats.append(elements[m])
+                    else:
+                        if elements[m] not in treated:    
+                            liste_etats.append(elements[m])
+            treated.append(etat)
+            liste_etats.pop(liste_etats.index(etat))
             
-            if liste_etats == {}:
+            
+            if liste_etats == []:
                 return tableau_transition
                         
         return tableau_transition
@@ -114,6 +110,8 @@ class AND(Automate):
     
     def determiniser(self) -> ADC:
         """Convertit en automate déterministe équivalent."""
+        tableau_transition = self.get_tableau_transition()
+        
         pass
         
         
