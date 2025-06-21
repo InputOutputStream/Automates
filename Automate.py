@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Set, Dict, List, Tuple, Optional, Union, Any
+from Etat import Etat
+from Mot import Mot
+from Langage import Langage
 
 
 class Automate(ABC):
     """
-    Classe abstraite représentant un automate selon la définition du cours.
+    Classe représentant un automate selon la définition du cours.
     
-    Composants:
     - alphabet: ensemble de symboles
     - etats: ensemble d'états
     - etat_initial: état de départ
@@ -14,7 +16,10 @@ class Automate(ABC):
     - fonction_transition: fonction de transition
     """
     
-    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, etats_finaux: Set[str]) -> None:
+    def __init__(self, alphabet: Set[str], 
+                 etats_finaux: Optional[Set[Etat]] = None,
+                 etats: Optional[Set[Etat]] = None, 
+                 etat_initial : Optional[Etat] = None) -> None:
         """
         Initialise l'automate avec ses composants de base.
         
@@ -24,46 +29,169 @@ class Automate(ABC):
             etat_initial: État initial
             etats_finaux: Ensemble des états finaux
         """
-        self.alphabet  = alphabet
-        self.etats = etats
-        self.etat_initial = etat_initial
-        self.etat_finaux = etats_finaux
+        self.alphabet = set(alphabet) if alphabet is not None else set()
+        self.transitions = {}
+
+        if etats is not None:
+            self.etats = etats  
+        else :
+            raise ValueError("Un automate doit avoir des etats")
         
+        if etat_initial is not None and etat_initial in self.etats:
+            self.etat_initial = etat_initial  
+            self.etat_initial.est_initial = True
+        else :
+            raise ValueError("L'état initial doit être défini et appartenir aux états")
         
-    @abstractmethod
-    def ajouter_transition(self, etat_source: str, symbole: str, etat_cible: str) -> None:
+        if etats_finaux is not None and etats_finaux & self.etats :
+            self.etats_finaux = etats_finaux  
+            for etat in self.etats_finaux:
+                etat.est_final = True
+        else :
+            raise ValueError("Un automate doit avoir des états finaux")
+        
+    def ajouter_transition(self, source: Etat, symbole: str, destination: Etat):
         """Ajoute une transition à l'automate."""
+        if source not in self.transitions:
+            self.transitions[source] = {}
+        if symbole not in self.transitions[source]:
+            self.transitions[source][symbole] = set()
+        self.transitions[source][symbole].add(destination)
+
+    def matrice_a_automate(self, matrice: list[list]):
         pass
+
+    def automate_a_matrice(self):
+        """Conversion temporaire pour algorithmes matriciels"""
+        etats_list = list(self.etats)
+        alphabet_list = list(self.alphabet)
+        n = len(etats_list)
+        m = len(alphabet_list)
+        
+        matrice = [[set() for _ in range(m)] for _ in range(n)]
+        
+        for i, etat in enumerate(etats_list):
+            if etat in self.transitions:
+                for j, symbole in enumerate(alphabet_list):
+                    if symbole in self.transitions[etat]:
+                        for dest in self.transitions[etat][symbole]:
+                            k = etats_list.index(dest)
+                            matrice[i][j].add(k)
+        
+        return matrice, etats_list, alphabet_list
     
-    @abstractmethod
+    
     def supprimer_transition(self, etat_source: str, symbole: str, etat_cible: str) -> None:
         """Supprime une transition de l'automate."""
-        pass
+        if (etat_source in self.transitions and 
+            symbole in self.transitions[etat_source] and
+            etat_cible in self.transitions[etat_source][symbole]):
+            
+            self.transitions[etat_source][symbole].remove(etat_cible)
+            
+            # Nettoyer les structures vides
+            if not self.transitions[etat_source][symbole]:
+                del self.transitions[etat_source][symbole]
+            if not self.transitions[etat_source]:
+                del self.transitions[etat_source]
+        else:
+            raise IndexError("etat_source, etat_cible ou transisions inconnu")
     
-    @abstractmethod
     def obtenir_transitions(self, etat: str, symbole: str) -> Set[str]:
         """Retourne l'ensemble des états accessibles depuis un état avec un symbole."""
-        pass
+        if etat in self.transitions and symbole in self.transitions[etat]:
+            return self.transitions[etat][symbole]
+        return set()    
     
-    @abstractmethod
     def reconnaitre_mot(self, mot: str) -> bool:
-        """Détermine si un mot est reconnu par l'automate."""
-        pass
+        """Vérifie si le mot est reconnu par l'automate."""
+        def cloture_epsilon(etats: Set[Etat], visited=None) -> Set[Etat]:
+            """Calcule la clôture epsilon d'un ensemble d'états."""
+            if visited is None:
+                visited = set()
+            result = set(etats)
+            for etat in etats:
+                if etat in visited:
+                    continue
+                visited.add(etat)
+                epsilon_dests = self.obtenir_transitions(etat, '') or set()
+                result |= cloture_epsilon(epsilon_dests, visited)
+            return result
+
+        etats_actuels = cloture_epsilon({self.etat_initial})
+        print(f"Initial states: {[str(e) for e in etats_actuels]}")
+
+        for i, symbole in enumerate(mot):
+            prochains_etats = set()
+            for etat in etats_actuels:
+                destinations = self.obtenir_transitions(etat, symbole) or set()
+                for dest in destinations:
+                    prochains_etats |= cloture_epsilon({dest})
+            etats_actuels = prochains_etats
+            print(f"After '{symbole}' (step {i+1}): {[str(e) for e in etats_actuels]}")
+
+        result = bool(etats_actuels & self.etats_finaux)
+        print(f"Final states: {[str(e) for e in etats_actuels & self.etats_finaux]}")
+        return result
+
+    def _reconnaitre_recursif(self, mot: str, etat_courant: Etat):
+        """Fonction récursive pour la reconnaissance de mots."""
+
+        if not mot:
+            return etat_courant.est_final
     
-    @abstractmethod
+        symbole = mot[0]
+        reste_du_mot = mot[1:]
+
+        etats_suivants = self.obtenir_transitions(etat_courant, symbole)
+
+        for etat_suivant in etats_suivants:
+            if self._reconnaitre_recursif(reste_du_mot, etat_suivant):
+                return True
+                
+        return False
+    
     def est_deterministe(self) -> bool:
         """Vérifie si l'automate est déterministe."""
-        pass
-    
-    @abstractmethod
+        """
+            En princippe ici "" est notre epsilon, mais on va voir comment il se comporte 
+            avec les testes
+        """
+        for etat in self.etats:
+            if etat in self.transitions:
+                for symbole in self.alphabet:
+                    if symbole in self.transitions[etat]:
+                        if len(self.transitions[etat][symbole]) > 1:
+                            return False
+        return True
+       
     def est_complet(self) -> bool:
         """Vérifie si l'automate est complet."""
-        pass
+        for etat in self.etats:
+            for symbole in self.alphabet:
+                if not self.obtenir_transitions(etat, symbole):
+                    return False
+        return True
     
-    @abstractmethod
     def afficher(self) -> str:
         """Retourne une représentation textuelle de l'automate."""
-        pass
+        result = []
+        result.append(f"Alphabet: {sorted(self.alphabet)}")
+        result.append(f"États: {[str(e) for e in self.etats]}")
+        result.append(f"État initial: {self.etat_initial}")
+        result.append(f"États finaux: {[str(e) for e in self.etats_finaux]}")
+        result.append("Transitions:")
+        
+        for etat_source in sorted(self.transitions.keys(), key=str):
+            for symbole in sorted(self.transitions[etat_source].keys()):
+                destinations = self.transitions[etat_source][symbole]
+                for dest in sorted(destinations, key=str):
+                    result.append(f"  {etat_source} --{symbole}--> {dest}")
+        
+        return "\n".join(result)
+    
+
+
 
 
 class ADC(Automate):
@@ -74,7 +202,8 @@ class ADC(Automate):
     spécifiques aux ADC (déterminisme et complétude).
     """
     
-    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, etats_finaux: Set[str]) -> None:
+    def __init__(self, alphabet: Set[str], etats: Set[str], etat_initial: str, 
+                 etats_finaux: Set[str]) -> None:
         """Initialise un ADC."""
         pass
     
@@ -268,7 +397,7 @@ class AutomateCanonique(AFDC):
     - Minimisation
     """
     
-    def __init__(self, langage: 'LangageReconnaissable') -> None:
+    def __init__(self, langage: 'Langage') -> None:
         """Construit l'automate canonique d'un langage."""
         pass
     
@@ -284,7 +413,7 @@ class AutomateCanonique(AFDC):
         """Retourne le nombre de classes d'équivalence."""
         pass
     
-    def construire_depuis_langage(self, langage: 'LangageReconnaissable') -> None:
+    def construire_depuis_langage(self, langage: 'Langage') -> None:
         """Construit l'automate canonique depuis un langage."""
         pass
     
@@ -293,293 +422,99 @@ class AutomateCanonique(AFDC):
         pass
 
 
-class Mot:
-    """
-    Classe représentant un mot sur un alphabet.
-    """
-    
-    def __init__(self, contenu: str = "", alphabet: Optional[Set[str]] = None) -> None:
-        """
-        Initialise un mot.
-        
-        Args:
-            contenu: Chaîne de caractères représentant le mot
-            alphabet: Alphabet du mot
-        """
-        pass
-    
-    def longueur(self) -> int: #Fonction_CHAP2
-        """Retourne la longueur du mot."""
-        pass
-    
-    def adjonction_occurrence_droite(self, symbole: str) -> 'Mot':##Fonction_CHAP2
-        """Ajoute une occurrence d'un symbole à droite."""
-        pass
-    
-    def adjonction_occurrence_gauche(self, symbole: str) -> 'Mot':##Fonction_CHAP2
-        """Ajoute une occurrence d'un symbole à gauche."""
-        pass
-    
-    def concatenation(self, autre_mot: 'Mot') -> 'Mot':##Fonction_CHAP2
-        """Concatène avec un autre mot."""
-        pass
-    
-    def liste_sous_mots(self) -> List['Mot']:##Fonction_CHAP2
-        """Retourne la liste de tous les sous-mots."""
-        pass
-    
-    def facteur_gauche(self, longueur: int) -> 'Mot':##Fonction_CHAP2
-        """Retourne le facteur gauche de longueur donnée."""
-        pass
-    
-    def facteur_droit(self, longueur: int) -> 'Mot':##Fonction_CHAP2
-        """Retourne le facteur droit de longueur donnée."""
-        pass
-    
-    def est_periodique(self, periode: int) -> bool:##Fonction_CHAP2
-        """Vérifie si le mot est périodique avec la période donnée."""
-        pass
-    
-    def est_primitif(self) -> bool:##Fonction_CHAP2
-        """Vérifie si le mot est primitif."""
-        pass
-    
-    def alphabet(self) -> Set[str]:##Fonction_CHAP2
-        """Retourne l'alphabet du mot."""
-        pass
-    
-    def est_reconnaissable(self, automate: Automate) -> bool:#Fonction_CHAP3
-        """Vérifie si le mot est reconnaissable par un automate."""
-        pass
-    
-    def sont_equivalents(self, autre_mot: 'Mot', automate: Automate) -> bool:#Fonction_CHAP3
-        """Vérifie si deux mots sont équivalents relativement à un automate."""
-        pass
-    
-    def __str__(self) -> str:
-        """Représentation textuelle du mot."""
-        pass
-    
-    def __eq__(self, autre: 'Mot') -> bool:
-        """Égalité entre mots."""
-        pass
-    
-    def __add__(self, autre: 'Mot') -> 'Mot':
-        """Surcharge de + pour la concaténation."""
-        pass
 
 
-class Langage:
-    """
-    Classe représentant un langage (ensemble de mots).
-    Surcharge d'opérateurs pour les opérations sur les langages.
-    """
-    
-    def __init__(self, mots: Optional[Set[Mot]] = None, alphabet: Optional[Set[str]] = None) -> None:
-        """
-        Initialise un langage.
-        
-        Args:
-            mots: Ensemble de mots du langage
-            alphabet: Alphabet du langage
-        """
-        pass
-    
-    def taille_du_langage(self) -> Union[int, float]:#Fonction_CHAP2
-        """Retourne la taille du langage (peut être infinie)."""
-        pass
-    
-    def reunion_finie_des_langages(self, autres_langages: List['Langage']) -> 'Langage':#Fonction_CHAP2
-        """Réunion finie de langages."""
-        pass
-    
-    def concatenation_des_langages(self, autre_langage: 'Langage') -> 'Langage':#Fonction_CHAP2
-        """Concaténation de deux langages."""
-        pass
-    
-    def iteration_sur_langages(self) -> 'Langage':#Fonction_CHAP2
-        """Étoile de Kleene du langage."""
-        pass
-    
-    def quotient_de_langages(self, autre_langage: 'Langage') -> 'Langage':#Fonction_CHAP2
-        """Quotient de langages."""
-        pass
-    
-    def lemme_darden(self) -> bool:#Fonction_CHAP2
-        """Application du lemme d'Arden."""
-        pass
-    
-    def resolution_partielle_gauss(self, systeme_equations: List[str]) -> Dict[str, 'Langage']:#Fonction_CHAP2
-        """Résolution partielle par méthode de Gauss."""
-        pass
-    
-    def substitution_gauss(self, variable: str, expression: 'Langage') -> 'Langage':#Fonction_CHAP2
-        """Substitution dans un système d'équations."""
-        pass
-    
-    def type_de_langage(self) -> str:#Fonction_CHAP2
-        """Détermine le type du langage dans la hiérarchie de Chomsky."""
-        pass
-    
-    def __add__(self, autre: 'Langage') -> 'Langage':
-        """Surcharge de + pour l'union."""
-        pass
-    
-    def __mul__(self, autre: 'Langage') -> 'Langage':
-        """Surcharge de * pour la concaténation."""
-        pass
-    
-    def __sub__(self, autre: 'Langage') -> 'Langage':
-        """Surcharge de - pour la différence."""
-        pass
-    
-    def __and__(self, autre: 'Langage') -> 'Langage':
-        """Surcharge de & pour l'intersection."""
-        pass
-    
-    def __or__(self, autre: 'Langage') -> 'Langage':
-        """Surcharge de | pour l'union."""
-        pass
 
 
-class LangageReconnaissable(Langage):#Fonction_CHAP3
-    """
-    Langage reconnaissable (régulier).
-    Implémente les propriétés de clôture des langages reconnaissables.
-    """
-    
-    def __init__(self, mots: Optional[Set[Mot]] = None, alphabet: Optional[Set[str]] = None,
-                 automate: Optional[Automate] = None) -> None:
-        """Initialise un langage reconnaissable."""
-        pass
-    
-    def complementation(self) -> 'LangageReconnaissable':
-        """Clôture par complémentation."""
-        pass
-    
-    def union_ensembliste(self, autre: 'LangageReconnaissable') -> 'LangageReconnaissable':
-        """Clôture par union ensembliste."""
-        pass
-    
-    def intersection_ensembliste(self, autre: 'LangageReconnaissable') -> 'LangageReconnaissable':
-        """Clôture par intersection ensembliste."""
-        pass
-    
-    def miroir(self) -> 'LangageReconnaissable':
-        """Clôture par miroir."""
-        pass
-    
-    def concatenation(self, autre: 'LangageReconnaissable') -> 'LangageReconnaissable':
-        """Clôture par concaténation."""
-        pass
-    
-    def etoile(self) -> 'LangageReconnaissable':
-        """Clôture par étoile (étoile de Kleene)."""
-        pass
-    
-    def regex_vers_langage(self, expression_reguliere: str) -> None:
-        """Construit le langage depuis une expression régulière."""
-        pass
-    
-    def langage_vers_regex(self) -> str:
-        """Convertit le langage en expression régulière."""
-        pass
-    
-    def theoreme_kleene_construction(self, automate: Automate) -> str:
-        """Application du théorème de Kleene pour la construction."""
-        pass
-    
-    def lemme_pompage_verification(self, mot: Mot) -> Tuple[bool, Dict[str, Any]]:
-        """Vérifie le lemme de pompage pour un mot."""
-        pass
-    
-    def lemme_pompage_application(self) -> bool:
-        """Application du lemme de pompage au langage."""
-        pass
 
+# =============================================
+# DÉMONSTRATION D'UTILISATION
+# =============================================
 
-class Monoids:#Fonction_CHAP2
-    """
-    Classe représentant un monoïde.
-    Implémentation selon la compréhension du cours de chaque développeur.
-    """
+if __name__ == "__main__":
+    print("=== DÉMONSTRATION DE LA CLASSE AUTOMATE ===\n")
     
-    def __init__(self, ensemble: Set[Any], operation: callable, element_neutre: Any) -> None:
-        """
-        Initialise un monoïde.
-        
-        Args:
-            ensemble: Ensemble de base
-            operation: Opération binaire
-            element_neutre: Élément neutre
-        """
-        pass
+    # Création des états
+    q0 = Etat("q0", est_initial=True)
+    q1 = Etat("q1", est_final=True) 
+    q2 = Etat("q2")
     
-    def est_associatif(self) -> bool:#Fonction_CHAP2
-        """Vérifie l'associativité de l'opération."""
-        pass
+    # Exemple 1: Automate simple qui accepte les mots finissant par 'a'
+    print("1. Automate acceptant les mots finissant par 'a'")
+    automate1 = Automate(
+        alphabet={'a', 'b'},
+        etats={q0, q1},
+        etat_initial=q0,
+        etats_finaux={q1}
+    )
     
-    def verifier_element_neutre(self) -> bool:#Fonction_CHAP2
-        """Vérifie l'existence de l'élément neutre."""
-        pass
+    # Ajout des transitions
+    automate1.ajouter_transition(q0, 'a', q1)  # q0 --a--> q1
+    automate1.ajouter_transition(q0, 'b', q0)  # q0 --b--> q0  
+    automate1.ajouter_transition(q1, 'a', q1)  # q1 --a--> q1
+    automate1.ajouter_transition(q1, 'b', q0)  # q1 --b--> q0
     
-    def est_commutatif(self) -> bool:#Fonction_CHAP2
-        """Vérifie si le monoïde est commutatif."""
-        pass
+    print(automate1.afficher())
+    print(f"Déterministe: {automate1.est_deterministe()}")
+    print(f"Complet: {automate1.est_complet()}")
     
-    def sous_monoide(self, sous_ensemble: Set[Any]) -> 'Monoids':#Fonction_CHAP2
-        """Construit un sous-monoïde."""
-        pass
+    # Test de reconnaissance
+    mots_test = ["a", "ba", "bba", "ab", "bb", ""]
+    for mot in mots_test:
+        resultat = automate1.reconnaitre_mot(mot)
+        print(f"Mot '{mot}': {'✓' if resultat else '✗'}")
     
-    def morphisme(self, autre_monoide: 'Monoids', fonction: callable) -> bool:#Fonction_CHAP2
-        """Vérifie si une fonction est un morphisme de monoïdes."""
-        pass
-
-
-class Etat:#Fonction_CHAP3
-    """
-    Classe représentant un état dans un automate avec ses propriétés.
-    """
+    print("\n" + "="*50 + "\n")
     
-    def __init__(self, nom: str, automate: Automate) -> None:
-        """
-        Initialise un état.
-        
-        Args:
-            nom: Nom de l'état
-            automate: Automate auquel appartient l'état
-        """
-        pass
+    # Exemple 2: Automate non-déterministe
+    print("2. Automate non-déterministe (deux transitions pour 'a' depuis q0)")
+    automate2 = Automate(
+        alphabet={'a', 'b'},
+        etats={q0, q1, q2},
+        etat_initial=q0,
+        etats_finaux={q2}
+    )
     
-    def est_accessible(self) -> bool:
-        """Vérifie si l'état est accessible depuis l'état initial."""
-        pass
+    # Transitions non-déterministes
+    automate2.ajouter_transition(q0, 'a', q1)  # q0 --a--> q1
+    automate2.ajouter_transition(q0, 'a', q2)  # q0 --a--> q2 (non-déterministe!)
+    automate2.ajouter_transition(q1, 'b', q2)  # q1 --b--> q2
     
-    def est_utile(self) -> bool:
-        """Vérifie si l'état est utile (accessible et coaccessible)."""
-        pass
+    print(automate2.afficher())
+    print(f"Déterministe: {automate2.est_deterministe()}")
+    print(f"Complet: {automate2.est_complet()}")
     
-    def est_coaccessible(self) -> bool:
-        """Vérifie si l'état est coaccessible (peut atteindre un état final)."""
-        pass
+    # Test de reconnaissance
+    mots_test2 = ["a", "ab", "b", "aa"]
+    for mot in mots_test2:
+        resultat = automate2.reconnaitre_mot(mot)
+        print(f"Mot '{mot}': {'✓' if resultat else '✗'}")
     
-    def chemin_vers_initial(self) -> Optional[List[str]]:
-        """Retourne un chemin vers l'état initial s'il existe."""
-        pass
+    print("\n" + "="*50 + "\n")
     
-    def chemin_vers_final(self) -> Optional[List[str]]:
-        """Retourne un chemin vers un état final s'il existe."""
-        pass
+    # Exemple 3: Conversion en matrice
+    print("3. Conversion automate → matrice")
+    matrice, etats_list, alphabet_list = automate1.automate_a_matrice()
     
-    def etats_atteignables(self) -> Set[str]:
-        """Retourne l'ensemble des états atteignables depuis cet état."""
-        pass
+    print(f"États: {[str(e) for e in etats_list]}")
+    print(f"Alphabet: {alphabet_list}")
+    print("Matrice de transitions:")
+    for i, etat in enumerate(etats_list):
+        for j, symbole in enumerate(alphabet_list):
+            destinations = matrice[i][j]
+            if destinations:
+                dest_noms = [str(etats_list[k]) for k in destinations]
+                print(f"  {etat} --{symbole}--> {dest_noms}")
     
-    def etats_precedents(self) -> Set[str]:
-        """Retourne l'ensemble des états qui peuvent atteindre cet état."""
-        pass
+    print("\n" + "="*50 + "\n")
     
-    def est_emonde(self) -> bool:
-        """Vérifie si l'état fait partie de l'automate émondé."""
-        pass
+    # Exemple 4: Manipulation des transitions
+    print("4. Suppression de transitions")
+    print("Avant suppression:")
+    print(automate1.afficher())
     
+    # Supprimer une transition
+    automate1.supprimer_transition(q1, 'b', q0)
+    print("\nAprès suppression de q1 --b--> q0:")
+    print(automate1.afficher())
+    print(f"Complet après suppression: {automate1.est_complet()}")
