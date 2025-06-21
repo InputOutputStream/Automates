@@ -1,10 +1,5 @@
 from typing import List, Set
 
-
-
-
-
-
 from typing import List, Set
 
 class Mot:
