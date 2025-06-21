@@ -1,0 +1,37 @@
+{
+  "alphabet": [
+    "a",
+    "b"
+  ],
+  "etats": [
+    "q2",
+    "q1",
+    "q0"
+  ],
+  "etat_initial": "q0",
+  "etats_finaux": [
+    "q1"
+  ],
+  "transitions": [
+    {
+      "source": "q0",
+      "symbole": "a",
+      "destination": "q1"
+    },
+    {
+      "source": "q0",
+      "symbole": "b",
+      "destination": "q0"
+    },
+    {
+      "source": "q1",
+      "symbole": "a",
+      "destination": "q1"
+    },
+    {
+      "source": "q1",
+      "symbole": "b",
+      "destination": "q0"
+    }
+  ]
+}
