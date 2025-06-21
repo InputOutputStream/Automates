@@ -33,9 +33,41 @@ class AND(Automate):
         """Retourne un ensemble d'états (non déterminisme)."""
         pass
     
-    def reconnaitre_mot(self, mot: str) -> bool:
+    def reconnaitre_mot(self, mot: str,depart: int) -> bool:
         """Reconnaissance non déterministe d'un mot."""
-        pass
+        etat = [depart]
+        #print(f"Taille: {len(mot)}")
+        if mot == "" and depart in self.etat_finaux:
+            return True
+        elif mot == "" and depart not in self.etat_finaux:
+            return False
+
+        issus = [] #Cette liste permet de contoler l'évolution du mot dans le cas ou on se trouve sur un état avec plusieurs transitions sur le meme symbole
+    
+        for i in range(len(mot)):
+            symbole = mot[i]
+            try :
+                if self.Value[etat[-1]][symbole]:
+                    pass
+            except:
+                pass
+            else:
+                if isinstance(self.Value[etat[-1]][symbole],set) == False:
+                    etat.append(self.Value[etat[-1]][symbole])
+                else:
+                    print(f"Else: {self.Value[etat[-1]][symbole]}")
+                    for t in self.Value[etat[-1]][symbole]:
+                        issus.append(self.reconnaitre_mot(mot[i+1:],t))
+                        etat.append(t)
+        print(f"Issus: {issus}")
+        if True in issus:
+            return True
+                    
+        if etat[-1] in self.etat_finaux:
+            return True
+        return False
+    
+    
     
     def est_deterministe(self) -> bool:
         """Vérifie le déterminisme."""
@@ -128,4 +160,6 @@ auto = {1: {"a":{2,3}},
     }
 
 and_ = AND({"a","b"},{1,2,3},1,{3},auto)
-print(and_.get_tableau_transition())
+#print(and_.get_tableau_transition())
+mot = "abbbbba"
+print(and_.reconnaitre_mot(mot,1))
