@@ -3,9 +3,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 from typing import Dict, Callable
 import webbrowser
+
 from .GestionnaireOperations import GestionnaireOperations
-
-
 from ..Automate import Automate
 from ..Etat import Etat
 
