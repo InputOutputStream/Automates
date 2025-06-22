@@ -2,7 +2,8 @@
 
 from itertools import product
 import json
-from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND, Etat
+from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND
+from ..Etat import Etat
 
 
 class GestionnaireOperations:

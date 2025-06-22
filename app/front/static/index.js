@@ -1,6 +1,212 @@
-let operationHistory = [];
+document.addEventListener('DOMContentLoaded', function() {
+    displayHistory();
+    
+    if (typeof cytoscape === 'undefined') {
+        console.warn('Cytoscape library not loaded. Graph visualization will not work.');
+    }
+    
+    const requiredElements = [
+        'transform-form', 'binary-ops-form', 'test-form', 
+        'automaton-input', 'operation-select', 'auto1-input', 
+        'auto2-input', 'binary-op-select', 'test-automaton-input', 
+        'word-input', 'auto-unary-input'
+    ];
+    
+    requiredElements.forEach(id => {
+        if (!document.getElementById(id)) {
+            console.warn(`Required element with id '${id}' not found in DOM`);
+        }
+    });
 
-function showTab(tabName) {
+    initializeFormListeners();
+});
+
+function initializeFormListeners() {
+    // Regex Form Handler
+    const regexForm = document.getElementById('regex-form');
+    if (regexForm) {
+        regexForm.addEventListener('submit', async function(e) {
+            console.log('Regex form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const regex = document.getElementById('regex-input').value.trim();
+            
+            if (!regex) {
+                showResult('regex-result', 'Please enter a regular expression.', 'error');
+                return false;
+            }
+
+            showResult('regex-result', '<div class="loading"></div> Converting...', 'info');
+
+            const result = await makeAPICall('/api/regex/convert', { regex }, 'regex-result');
+            if (result) {
+                addToHistory('Regex to Automaton', regex, result.automaton);
+                showResult('regex-result', 
+                    `<h3>Conversion Result:</h3><pre>${JSON.stringify(result.automaton, null, 2)}</pre>`, 
+                    'success'
+                );
+                renderGraph(result.automaton, 'regex-graph');
+            }
+            
+            return false;
+        });
+    } else {
+        console.error('regex-form element not found!');
+    }
+
+    // Transform Form Handler
+    const transformForm = document.getElementById('transform-form');
+    if (transformForm) {
+        transformForm.addEventListener('submit', async function(e) {
+            console.log('Transform form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const automaton = document.getElementById('automaton-input').value.trim();
+            const operation = document.getElementById('operation-select').value;
+
+            if (!automaton) {
+                showResult('transform-result', 'Please enter an automaton.', 'error');
+                return false;
+            }
+
+            if (!operation) {
+                showResult('transform-result', 'Please select an operation.', 'error');
+                return false;
+            }
+
+            try {
+                JSON.parse(automaton);
+            } catch (error) {
+                showResult('transform-result', 'Invalid JSON format for automaton.', 'error');
+                return false;
+            }
+
+            showResult('transform-result', '<div class="loading"></div> Processing...', 'info');
+            
+            const response = await makeAPICall('/api/automaton/transform', {
+                automaton: JSON.parse(automaton), 
+                operation: operation
+            }, 'transform-result');
+            
+            if (response) { 
+                addToHistory(operation, automaton, response.automaton);
+                showResult('transform-result', 
+                    `<h3>${operation} Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
+                    'success'
+                );
+                renderGraph(response.automaton, 'transform-graph');
+            }
+            
+            return false;
+        });
+    }
+
+    // Binary Operations Form Handler
+    const binaryOpsForm = document.getElementById('binary-ops-form');
+    if (binaryOpsForm) {
+        binaryOpsForm.addEventListener('submit', async function(e) {
+            console.log('Binary ops form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const auto1 = document.getElementById('auto1-input').value.trim();
+            const auto2 = document.getElementById('auto2-input').value.trim();
+            const operation = document.getElementById('binary-op-select').value;
+
+            if (!auto1 || !auto2) {
+                showResult('operations-result', 'Please enter both automata.', 'error');
+                return false;
+            }
+
+            if (!operation) {
+                showResult('operations-result', 'Please select an operation.', 'error');
+                return false;
+            }
+
+            try {
+                JSON.parse(auto1);
+                JSON.parse(auto2);
+            } catch (error) {
+                showResult('operations-result', 'Invalid JSON format for one or both automata.', 'error');
+                return false;
+            }
+
+            showResult('operations-result', '<div class="loading"></div> Processing...', 'info');
+
+            const response = await makeAPICall(`/api/automaton/${operation}`, {
+                automaton1: JSON.parse(auto1), 
+                automaton2: JSON.parse(auto2)
+            }, 'operations-result');
+            
+            if (response) {
+                addToHistory(operation, {auto1, auto2}, response.automaton);
+                showResult('operations-result', 
+                    `<h3>${operation} Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
+                    'success'
+                );
+                renderGraph(response.automaton, 'operations-graph');
+            }
+            
+            return false;
+        });
+    }
+
+    // Test Form Handler
+    const testForm = document.getElementById('test-form');
+    if (testForm) {
+        testForm.addEventListener('submit', async function(e) {
+            console.log('Test form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const automaton = document.getElementById('test-automaton-input').value.trim();
+            const word = document.getElementById('word-input').value.trim();
+
+            if (!automaton) {
+                showResult('test-result', 'Please enter an automaton.', 'error');
+                return false;
+            }
+
+            if (!word) {
+                showResult('test-result', 'Please enter a word to test.', 'error');
+                return false;
+            }
+
+            try {
+                JSON.parse(automaton);
+            } catch (error) {
+                showResult('test-result', 'Invalid JSON format for automaton.', 'error');
+                return false;
+            }
+
+            showResult('test-result', '<div class="loading"></div> Testing...', 'info');
+
+            const response = await makeAPICall('/api/automaton/test', {
+                automaton: JSON.parse(automaton), 
+                word: word
+            }, 'test-result');
+            
+            if (response) {
+                addToHistory('Word Test', {automaton, word}, {accepted: response.accepted, word});
+                showResult('test-result', 
+                    `<h3>Test Result:</h3><p>Word "${word}" is <strong>${response.accepted ? 'ACCEPTED' : 'REJECTED'}</strong> by the automaton.</p>`, 
+                    response.accepted ? 'success' : 'error'
+                );
+                animateRecognition(JSON.parse(automaton), word, 'test-graph');
+            }
+            
+            return false;
+        });
+    }
+}
+
+let operationHistory = [];
+let currentAnimationInterval = null; 
+
+
+function showTab(tabName, event) { 
     const tabContents = document.querySelectorAll('.tab-content');
     tabContents.forEach(content => content.classList.remove('active'));
 
@@ -8,25 +214,38 @@ function showTab(tabName) {
     tabs.forEach(tab => tab.classList.remove('active'));
 
     document.getElementById(tabName + '-tab').classList.add('active');
-    event.target.classList.add('active');
+    if (event && event.target) { 
+        event.target.classList.add('active');
+    }
 
     // Clear graphs when switching tabs
     ['regex', 'transform', 'operations', 'test'].forEach(tab => {
         const container = document.getElementById(`${tab}-graph`);
-        container.innerHTML = '';
+        if (container) { 
+            container.innerHTML = '';
+        }
     });
 }
 
 function showResult(elementId, content, type = 'info') {
     const element = document.getElementById(elementId);
+    if (!element) { 
+        console.error(`Element with id '${elementId}' not found`);
+        return;
+    }
     element.innerHTML = content;
     element.className = `result ${type}`;
     element.style.display = 'block';
 }
 
+
 function showModal(message, type = 'info') {
     const modal = document.getElementById('modal');
     const modalMessage = document.getElementById('modal-message');
+    if (!modal || !modalMessage) { 
+        console.error('Modal elements not found');
+        return;
+    }
     modalMessage.textContent = message;
     modal.classList.add('active');
     modal.className = `modal ${type}`;
@@ -34,7 +253,9 @@ function showModal(message, type = 'info') {
 
 function hideModal() {
     const modal = document.getElementById('modal');
-    modal.classList.remove('active');
+    if (modal) { 
+        modal.classList.remove('active');
+    }
 }
 
 function addToHistory(operation, input, output) {
@@ -54,6 +275,11 @@ function addToHistory(operation, input, output) {
 
 function displayHistory() {
     const container = document.getElementById('history-container');
+    if (!container) { 
+        console.error('History container not found');
+        return;
+    }
+    
     if (operationHistory.length === 0) {
         container.innerHTML = '<p>No operations performed yet.</p>';
         return;
@@ -61,19 +287,30 @@ function displayHistory() {
 
     let html = '';
     operationHistory.forEach((item, index) => {
+        const truncatedInput = item.input.substring(0, 100);
         html += `
             <div class="history-item">
                 <strong>${item.operation}</strong> - ${item.timestamp}
-                <br><small>Input: ${item.input.substring(0, 100)}${item.input.length > 100 ? '...' : ''}</small>
+                <br><small>Input: ${truncatedInput}${item.input.length > 100 ? '...' : ''}</small>
             </div>
         `;
     });
     container.innerHTML = html;
 }
 
+
 function renderGraph(automaton, containerId) {
     const container = document.getElementById(containerId);
-    if (!container) return;
+    if (!container) {
+        console.error(`Container '${containerId}' not found`);
+        return null;
+    }
+
+    if (typeof cytoscape === 'undefined') {
+        console.error('Cytoscape library not loaded');
+        container.innerHTML = '<p>Graph visualization not available. Please load Cytoscape library.</p>';
+        return null;
+    }
 
     const elements = [
         ...automaton.states.map(state => ({
@@ -151,38 +388,68 @@ function renderGraph(automaton, containerId) {
 }
 
 async function animateRecognition(automaton, word, containerId) {
-    const cy = renderGraph(automaton, containerId);
-    const response = await fetch('/api/automaton/trace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ automaton, word })
-    });
-
-    const data = await response.json();
-    if (data.error) {
-        showModal(data.error, 'error');
-        return;
+    if (currentAnimationInterval) {
+        clearInterval(currentAnimationInterval);
+        currentAnimationInterval = null;
     }
 
-    let i = 0;
-    cy.nodes().removeClass('highlight');
-    cy.edges().removeClass('highlight');
-    const interval = setInterval(() => {
+    const cy = renderGraph(automaton, containerId);
+    if (!cy) return; 
+
+    try {
+        const response = await fetch('/api/automaton/trace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ automaton, word })
+        });
+
+        if (!response.ok) { 
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+            showModal(data.error, 'error');
+            return;
+        }
+
+        let i = 0;
         cy.nodes().removeClass('highlight');
         cy.edges().removeClass('highlight');
-        if (i < data.path.length) {
-            cy.getElementById(data.path[i].state).addClass('highlight');
-            if (i > 0) {
-                const edgeId = `${data.path[i-1].state}-${data.path[i].symbol}-${data.path[i].state}`;
-                cy.getElementById(edgeId).addClass('highlight');
+        
+        currentAnimationInterval = setInterval(() => {
+            cy.nodes().removeClass('highlight');
+            cy.edges().removeClass('highlight');
+            if (i < data.path.length) {
+                cy.getElementById(data.path[i].state).addClass('highlight');
+                if (i > 0) {
+                    const edgeId = `${data.path[i-1].state}-${data.path[i].symbol}-${data.path[i].state}`;
+                    cy.getElementById(edgeId).addClass('highlight');
+                }
+                i++;
+            } else {
+                clearInterval(currentAnimationInterval);
+                currentAnimationInterval = null;
+                showModal(`Word "${word}" is ${data.accepted ? 'ACCEPTED' : 'REJECTED'}.`, data.accepted ? 'success' : 'error');
             }
-            i++;
-        } else {
-            clearInterval(interval);
-            showModal(`Word "${word}" is ${data.accepted ? 'ACCEPTED' : 'REJECTED'}.`, data.accepted ? 'success' : 'error');
-        }
-    }, 500);
+        }, 500);
+    } catch (error) {
+        console.error('Animation error:', error);
+        showModal(`Error during animation: ${error.message}`, 'error');
+    }
 }
+
+
+function validateJSON(jsonString, fieldName) {
+    try {
+        return JSON.parse(jsonString);
+    } catch (error) {
+        const errorMsg = `Invalid JSON format for ${fieldName}: ${error.message}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+    }
+}
+
 
 async function validateRegex() {
     const regex = document.getElementById('regex-input').value;
@@ -191,156 +458,39 @@ async function validateRegex() {
         return;
     }
 
-    try {
-        const response = await fetch('/api/regex/validate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ regex })
-        });
-        const data = await response.json();
-        showResult('regex-result', data.message, data.valid ? 'success' : 'error');
-    } catch (error) {
-        showResult('regex-result', `Error: ${error.message}`, 'error');
+    const result = await makeAPICall('/api/regex/validate', { regex }, 'regex-result');
+    if (result) {
+        showResult('regex-result', result.message, result.valid ? 'success' : 'error');
     }
 }
 
-document.getElementById('regex-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const regex = document.getElementById('regex-input').value;
 
-    showResult('regex-result', '<div class="loading"></div> Converting...', 'info');
-
+async function makeAPICall(url, data, resultElementId, successMessage) {
     try {
-        const response = await fetch('/api/regex/convert', {
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ regex })
+            body: JSON.stringify(data)
         });
-        const data = await response.json();
-        if (data.error) {
-            showResult('regex-result', data.error, 'error');
-            return;
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-        addToHistory('Regex to Automaton', regex, data.automaton);
-        showResult('regex-result', 
-            `<h3>Conversion Result:</h3><pre>${JSON.stringify(data.automaton, null, 2)}</pre>`, 
-            'success'
-        );
-        renderGraph(data.automaton, 'regex-graph');
-    } catch (error) {
-        showResult('regex-result', `Error: ${error.message}`, 'error');
-    }
-});
 
-document.getElementById('transform-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const automaton = document.getElementById('automaton-input').value;
-    const operation = document.getElementById('operation-select').value;
-
-    try {
-        JSON.parse(automaton);
-    } catch (error) {
-        showResult('transform-result', 'Invalid JSON format for automaton.', 'error');
-        return;
-    }
-
-    showResult('transform-result', '<div class="loading"></div> Processing...', 'info');
-
-    try {
-        const response = await fetch('/api/automaton/transform', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ automaton: JSON.parse(automaton), operation })
-        });
-        const data = await response.json();
-        if (data.error) {
-            showResult('transform-result', data.error, 'error');
-            return;
+        const result = await response.json();
+        if (result.error) {
+            showResult(resultElementId, result.error, 'error');
+            return null;
         }
-        addToHistory(operation, automaton, data.automaton);
-        showResult('transform-result', 
-            `<h3>${operation} Result:</h3><pre>${JSON.stringify(data.automaton, null, 2)}</pre>`, 
-            'success'
-        );
-        renderGraph(data.automaton, 'transform-graph');
+        
+        return result;
     } catch (error) {
-        showResult('transform-result', `Error: ${error.message}`, 'error');
+        const errorMsg = `Network error: ${error.message}. Please check if the server is running.`;
+        showResult(resultElementId, errorMsg, 'error');
+        console.error('API call failed:', error);
+        return null;
     }
-});
-
-document.getElementById('binary-ops-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const auto1 = document.getElementById('auto1-input').value;
-    const auto2 = document.getElementById('auto2-input').value;
-    const operation = document.getElementById('binary-op-select').value;
-
-    try {
-        JSON.parse(auto1);
-        JSON.parse(auto2);
-    } catch (error) {
-        showResult('operations-result', 'Invalid JSON format for one or both automata.', 'error');
-        return;
-    }
-
-    showResult('operations-result', '<div class="loading"></div> Processing...', 'info');
-
-    try {
-        const response = await fetch(`/api/automaton/${operation}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ automaton1: JSON.parse(auto1), automaton2: JSON.parse(auto2) })
-        });
-        const data = await response.json();
-        if (data.error) {
-            showResult('operations-result', data.error, 'error');
-            return;
-        }
-        addToHistory(operation, {auto1, auto2}, data.automaton);
-        showResult('operations-result', 
-            `<h3>${operation} Result:</h3><pre>${JSON.stringify(data.automaton, null, 2)}</pre>`, 
-            'success'
-        );
-        renderGraph(data.automaton, 'operations-graph');
-    } catch (error) {
-        showResult('operations-result', `Error: ${error.message}`, 'error');
-    }
-});
-
-document.getElementById('test-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const automaton = document.getElementById('test-automaton-input').value;
-    const word = document.getElementById('word-input').value;
-
-    try {
-        JSON.parse(automaton);
-    } catch (error) {
-        showResult('test-result', 'Invalid JSON format for automaton.', 'error');
-        return;
-    }
-
-    showResult('test-result', '<div class="loading"></div> Testing...', 'info');
-
-    try {
-        const response = await fetch('/api/automaton/test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ automaton: JSON.parse(automaton), word })
-        });
-        const data = await response.json();
-        if (data.error) {
-            showResult('test-result', data.error, 'error');
-            return;
-        }
-        addToHistory('Word Test', {automaton, word}, {accepted: data.accepted, word});
-        showResult('test-result', 
-            `<h3>Test Result:</h3><p>Word "${word}" is <strong>${data.accepted ? 'ACCEPTED' : 'REJECTED'}</strong> by the automaton.</p>`, 
-            data.accepted ? 'success' : 'error'
-        );
-        animateRecognition(JSON.parse(automaton), word, 'test-graph');
-    } catch (error) {
-        showResult('test-result', `Error: ${error.message}`, 'error');
-    }
-});
+}
 
 async function kleeneStar() {
     const automaton = document.getElementById('auto-unary-input').value;
@@ -359,25 +509,17 @@ async function kleeneStar() {
 
     showResult('operations-result', '<div class="loading"></div> Applying Kleene Star...', 'info');
 
-    try {
-        const response = await fetch('/api/automaton/kleene', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ automaton: JSON.parse(automaton) })
-        });
-        const data = await response.json();
-        if (data.error) {
-            showResult('operations-result', data.error, 'error');
-            return;
-        }
-        addToHistory('Kleene Star', automaton, data.automaton);
+    const response = await makeAPICall('/api/automaton/kleene', {
+        automaton: JSON.parse(automaton)
+    }, 'operations-result');
+    
+    if (response) {
+        addToHistory('Kleene Star', automaton, response.automaton);
         showResult('operations-result', 
-            `<h3>Kleene Star Result:</h3><pre>${JSON.stringify(data.automaton, null, 2)}</pre>`, 
+            `<h3>Kleene Star Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
             'success'
         );
-        renderGraph(data.automaton, 'operations-graph');
-    } catch (error) {
-        showResult('operations-result', `Error: ${error.message}`, 'error');
+        renderGraph(response.automaton, 'operations-graph');
     }
 }
 
@@ -400,24 +542,17 @@ async function compareAutomata() {
 
     showResult('operations-result', '<div class="loading"></div> Comparing...', 'info');
 
-    try {
-        const response = await fetch('/api/automaton/compare', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ automaton1: JSON.parse(auto1), automaton2: JSON.parse(auto2) })
-        });
-        const data = await response.json();
-        if (data.error) {
-            showResult('operations-result', data.error, 'error');
-            return;
-        }
-        addToHistory('Compare Automata', {auto1, auto2}, {equivalent: data.equivalent});
+    const response = await makeAPICall('/api/automaton/compare', {
+        automaton1: JSON.parse(auto1), 
+        automaton2: JSON.parse(auto2)
+    }, 'operations-result');
+    
+    if (response) {
+        addToHistory('Compare Automata', {auto1, auto2}, {equivalent: response.equivalent});
         showResult('operations-result', 
-            `<h3>Comparison Result:</h3><p>Automata are <strong>${data.equivalent ? 'EQUIVALENT' : 'NOT EQUIVALENT'}</strong>.</p>`, 
-            data.equivalent ? 'success' : 'error'
+            `<h3>Comparison Result:</h3><p>Automata are <strong>${response.equivalent ? 'EQUIVALENT' : 'NOT EQUIVALENT'}</strong>.</p>`, 
+            response.equivalent ? 'success' : 'error'
         );
-    } catch (error) {
-        showResult('operations-result', `Error: ${error.message}`, 'error');
     }
 }
 
@@ -426,15 +561,32 @@ async function getHistory() {
         const response = await fetch('/api/automaton/history', {
             method: 'GET'
         });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
-        operationHistory = data.history.map((op, index) => ({
-            timestamp: new Date().toLocaleString(),
-            operation: op,
-            input: 'N/A',
-            output: 'N/A'
-        }));
+        
+        if (data.error) {
+            showModal(data.error, 'error');
+            return;
+        }
+        
+        if (Array.isArray(data.history)) {
+            operationHistory = data.history.map((op, index) => ({
+                timestamp: new Date().toLocaleString(),
+                operation: op,
+                input: 'N/A',
+                output: 'N/A'
+            }));
+        } else {
+            operationHistory = [];
+        }
+        
         displayHistory();
     } catch (error) {
+        console.error('Error fetching history:', error);
         showModal(`Error fetching history: ${error.message}`, 'error');
     }
 }
@@ -444,15 +596,24 @@ async function clearHistory() {
         const response = await fetch('/api/automaton/clear-history', {
             method: 'POST'
         });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        
+        if (data.error) {
+            showModal(data.error, 'error');
+            return;
+        }
+        
         operationHistory = [];
         displayHistory();
-        showModal(data.message, 'success');
+        showModal(data.message || 'History cleared successfully', 'success');
     } catch (error) {
+        console.error('Error clearing history:', error);
         showModal(`Error clearing history: ${error.message}`, 'error');
     }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    displayHistory();
-});

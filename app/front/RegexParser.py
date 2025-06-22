@@ -2,7 +2,7 @@
 from typing import Tuple
 import uuid
 from ..Automate import AFNS
-
+from ..Etat import Etat
 
 class RegexParser:
     """
@@ -117,9 +117,7 @@ class RegexParser:
             return self.construire_automate_base(char)
     
     def construire_automate_base(self, symbole: str) -> 'AFNS':
-        """Construit l'automate de base pour un symbole"""
-        from Etat import Etat
-        
+        """Construit l'automate de base pour un symbole"""        
         q0 = Etat(f"q{uuid.uuid4().hex[:8]}")
         q1 = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
         
@@ -135,8 +133,7 @@ class RegexParser:
     
     def construire_union(self, auto1: 'AFNS', auto2: 'AFNS') -> 'AFNS':
         """Construit l'union de deux automates (a|b)"""
-        from Etat import Etat
-        
+                
         # Nouvel état initial et final
         nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}")
         nouvel_final = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
@@ -219,8 +216,7 @@ class RegexParser:
     
     def construire_etoile(self, automate: 'AFNS') -> 'AFNS':
         """Construit l'étoile de Kleene (a*)"""
-        from Etat import Etat
-        
+                
         nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
         nouveaux_etats = {nouvel_initial} | automate.etats
         
@@ -253,8 +249,7 @@ class RegexParser:
     
     def construire_optionnel(self, automate: 'AFNS') -> 'AFNS':
         """Construit A? équivalent à (A|ε)"""
-        from Etat import Etat
-        
+                
         nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
         nouveaux_etats = {nouvel_initial} | automate.etats
         
