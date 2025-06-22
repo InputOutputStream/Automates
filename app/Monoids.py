@@ -60,6 +60,36 @@ class Monoids:#Fonction_CHAP2
             return True
         
         return False 
+    
+    def verifier_element_neutre(self) -> bool:
+        """
+        Vérifie si l'élément neutre satisfait les propriétés du monoïde.
+        Pour tout a dans l'ensemble, operation(a, element_neutre) = a et operation(element_neutre, a) = a.
+        """
+        for a in self.ensemble:
+            if self.operation(a, self.element_neutre) != a or self.operation(self.element_neutre, a) != a:
+                return False
+        return True
+
+    def sous_monoide(self, sous_ensemble: Set[Any]) -> 'Monoids':
+        """
+        Construit un sous-monoïde à partir d'un sous-ensemble.
+        Vérifie que le sous-ensemble est fermé par l'opération et contient l'élément neutre.
+        """
+        if not sous_ensemble.issubset(self.ensemble):
+            raise ValueError("Le sous-ensemble doit être inclus dans l'ensemble du monoïde")
+        
+        if self.element_neutre not in sous_ensemble:
+            raise ValueError("Le sous-ensemble doit contenir l'élément neutre")
+        
+        # Vérifier la fermeture par l'opération
+        for a, b in itertools.product(sous_ensemble, repeat=2):
+            result = self.operation(a, b)
+            if result not in sous_ensemble:
+                raise ValueError(f"Le sous-ensemble n'est pas fermé pour l'opération: {a} * {b} = {result}")
+        
+        # Créer le sous-monoïde
+        return Monoids(sous_ensemble, self.operation, self.element_neutre)
 
 
 

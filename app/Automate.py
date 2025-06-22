@@ -163,6 +163,53 @@ class Automate(ABC):
         
         return "\n".join(result)
     
+    def matrice_a_automate(self, matrice: list[list]):
+        """
+        Convertit une matrice de transitions en un automate.
+        Args:
+            matrice: Liste de listes où matrice[i][j] contient les indices des états destinations
+                    pour l'état i et le symbole j de l'alphabet.
+        """
+        if not matrice or not matrice[0]:
+            raise ValueError("Matrice invalide")
+
+        n = len(matrice)  # Nombre d'états
+        m = len(matrice[0])  # Nombre de symboles
+
+        # Créer un alphabet par défaut (par exemple, 'a', 'b', ..., ou utiliser un alphabet donné)
+        alphabet = {chr(97 + j) for j in range(m)}  # 'a', 'b', etc.
+        
+        # Créer les états
+        etats = {Etat(f"q{i}") for i in range(n)}
+        
+        # Identifier l'état initial (par convention, q0)
+        etat_initial = next(e for e in etats if e.nom == "q0")
+        etat_initial.est_initial = True
+        
+        # Identifier les états finaux (par exemple, dernier état ou configurable)
+        # Convention : dernier état est final (peut être modifié selon le contexte)
+        etats_finaux = {next(e for e in etats if e.nom == f"q{n-1}")}
+        for e in etats_finaux:
+            e.est_final = True
+        
+        # Initialiser l'automate
+        self.alphabet = alphabet
+        self.etats = etats
+        self.etat_initial = etat_initial
+        self.etats_finaux = etats_finaux
+        self.transitions = {}
+        
+        # Ajouter les transitions à partir de la matrice
+        alphabet_list = sorted(list(alphabet))
+        for i in range(n):
+            source = next(e for e in etats if e.nom == f"q{i}")
+            for j in range(m):
+                symbole = alphabet_list[j]
+                for dest_idx in matrice[i][j]:
+                    if dest_idx < n:
+                        destination = next(e for e in etats if e.nom == f"q{dest_idx}")
+                        self.ajouter_transition(source, symbole, destination)
+    
 
 
 class ADC(Automate):
