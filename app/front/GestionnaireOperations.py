@@ -2,7 +2,7 @@
 
 from itertools import product
 import json
-from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND
+from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND, AD
 from ..Etat import Etat
 
 
@@ -20,17 +20,22 @@ class GestionnaireOperations:
         # Simplification : accepte (a|b)*
         if regex == "(a|b)*":
             q0 = Etat("q0", est_initial=True, est_final=True)
-            automate = AFND({"a", "b"}, {q0}, q0, {q0})
+            automate = AFND({"", "a", "b"}, {q0}, q0, {q0})
             automate.ajouter_transition(q0, "a", q0)
             automate.ajouter_transition(q0, "b", q0)
             return automate
         raise NotImplementedError("Regex complexe non supporté")
     
-    def determiniser_automate(self, automate: AND) -> ADC:
+    def determiniser_automate(self, automate: AND, type: int=1) -> AD:
         """Déterminise un automate"""
         self.operations_history.append("Déterminisation")
-        return automate.determiniser()
-    
+        if type == 0:
+            return automate.determinisation_glushkov()
+        elif type == 1:
+            return automate.determinisation_thompson()
+        else:
+            raise ValueError("Valeur de type inconnu")
+        
     def minimiser_automate(self, automate: AFDC) -> AFDC:
         """Minimise un automate"""
         self.operations_history.append("Minimisation")
@@ -41,7 +46,7 @@ class GestionnaireOperations:
         self.operations_history.append("Complétion")
         if isinstance(automate, ADC):
             return automate
-        adc = ADC(automate.alphabet, automate.etats, automate.etat_initial, automate.etats_finaux)
+        adc = AD(automate.alphabet, automate.etats, automate.etat_initial, automate.etats_finaux)
         adc.transitions = automate.transitions.copy()
         adc.completer()
         return adc

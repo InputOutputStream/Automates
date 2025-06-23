@@ -1,5 +1,5 @@
+from dataclasses import dataclass
 from typing import Set, Dict, List, Tuple, Optional, Deque
-
 
 class Etat:
     """
@@ -79,7 +79,7 @@ class Etat:
         
         # BFS pour vérifier l'accessibilité
         visited = set()
-        queue = deque([automate.etat_initial])
+        queue = Deque([automate.etat_initial])
         visited.add(automate.etat_initial)
         
         while queue:
@@ -112,7 +112,7 @@ class Etat:
         
         automate = self.automate
         visited = set()
-        queue = deque([self])
+        queue = Deque([self])
         visited.add(self)
         
         while queue:
@@ -140,7 +140,7 @@ class Etat:
         
         # BFS avec reconstruction du chemin
         visited = {automate.etat_initial: None}
-        queue = deque([(automate.etat_initial, [])])
+        queue = Deque([(automate.etat_initial, [])])
         
         while queue:
             current, path = queue.popleft()
@@ -166,7 +166,7 @@ class Etat:
         
         automate = self.automate
         visited = {self: None}
-        queue = deque([(self, [])])
+        queue = Deque([(self, [])])
         
         while queue:
             current, path = queue.popleft()
@@ -189,7 +189,7 @@ class Etat:
         
         automate = self.automate
         reachable = set()
-        queue = deque([self])
+        queue = Deque([self])
         reachable.add(self.nom)
         
         while queue:
@@ -220,7 +220,7 @@ class Etat:
                         predecessors.add(state.nom)
         
         # Vérifier récursivement les prédécesseurs des prédécesseurs
-        queue = deque(predecessors.copy())
+        queue = Deque(predecessors.copy())
         while queue:
             current = queue.popleft()
             current_state = next(e for e in automate.etats if e.nom == current)

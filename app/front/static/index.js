@@ -556,6 +556,30 @@ async function compareAutomata() {
     }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 async function getHistory() {
     try {
         const response = await fetch('/api/automaton/history', {

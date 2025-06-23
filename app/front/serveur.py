@@ -4,6 +4,9 @@ import json
 import traceback
 from typing import Dict, Any
 import logging
+import webbrowser
+import threading
+import time
 
 from .GestionnaireOperations import GestionnaireOperations
 from .RegexParser import RegexParser
@@ -13,33 +16,47 @@ from ..Etat import Etat
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class AutomatonFlaskServer:
-    def __init__(self, host='localhost', port=8080, debug=True):
+class AutomatonServer:
+    """
+    Enhanced Automaton Server combining Flask API with local server capabilities
+    """
+    
+    def __init__(self, host='localhost', port=8080, debug=True, auto_open_browser=False):
         self.app = Flask(__name__)
         CORS(self.app)
         self.host = host
         self.port = port
         self.debug = debug
+        self.auto_open_browser = auto_open_browser
         self.gestionnaire = GestionnaireOperations()
         self.regex_parser = RegexParser()
+        self.server_thread = None
         self._setup_routes()
         self._setup_error_handlers()
 
     def _setup_routes(self):
+        """Setup all API routes"""
+        
         @self.app.route('/')
         def index():
+            """Serve the main interface"""
             return render_template('index.html')
 
         @self.app.route('/api/health', methods=['GET'])
         def health_check():
+            """Health check endpoint"""
             return jsonify({
                 'status': 'healthy',
                 'service': 'automaton-server',
-                'version': '1.0.0'
+                'version': '2.0.0',
+                'features': ['regex_conversion', 'automaton_operations', 'word_testing', 'equivalence_checking']
             })
 
+        # Regex operations
         @self.app.route('/api/regex/convert', methods=['POST'])
+        @self.app.route('/api/regex', methods=['POST'])  # Legacy endpoint
         def convert_regex():
+            """Convert regex to automaton"""
             try:
                 data = request.get_json()
                 if not data or 'regex' not in data:
@@ -65,6 +82,7 @@ class AutomatonFlaskServer:
 
         @self.app.route('/api/regex/validate', methods=['POST'])
         def validate_regex():
+            """Validate regex syntax"""
             try:
                 data = request.get_json()
                 if not data or 'regex' not in data:
@@ -86,15 +104,25 @@ class AutomatonFlaskServer:
                 logger.error(f"Error validating regex: {str(e)}")
                 return jsonify({'error': f'Regex validation failed: {str(e)}'}), 500
 
+        # Single automaton operations
         @self.app.route('/api/automaton/transform', methods=['POST'])
+        @self.app.route('/api/transformer', methods=['POST'])  # Legacy endpoint
         def transform_automaton():
+            """Transform automaton (determinize, minimize, complete, complement)"""
             try:
                 data = request.get_json()
                 if not data or 'automaton' not in data or 'operation' not in data:
-                    return jsonify({'error': 'Missing automaton or operation parameter'}), 400
+                    # Support legacy format
+                    if 'automate' in data:
+                        data['automaton'] = data['automate']
+                    else:
+                        return jsonify({'error': 'Missing automaton or operation parameter'}), 400
                 
-                # Validate automaton structure
+                # Handle legacy JSON string format
                 automaton_data = data['automaton']
+                if isinstance(automaton_data, str):
+                    automaton_data = json.loads(automaton_data)
+                
                 if not self._validate_automaton_structure(automaton_data):
                     return jsonify({'error': 'Invalid automaton structure'}), 400
                 
@@ -103,13 +131,13 @@ class AutomatonFlaskServer:
                 
                 logger.info(f"Performing operation: {operation}")
                 
-                if operation == 'determinize':
+                if operation == 'determinize' or operation == 'determiniser':
                     result_automate = self.gestionnaire.determiniser_automate(automate)
-                elif operation == 'minimize':
+                elif operation == 'minimize' or operation == 'minimiser':
                     result_automate = self.gestionnaire.minimiser_automate(automate)
-                elif operation == 'complete':
+                elif operation == 'complete' or operation == 'completer':
                     result_automate = self.gestionnaire.completer_automate(automate)
-                elif operation == 'complement':
+                elif operation == 'complement' or operation == 'complementaire':
                     result_automate = self.gestionnaire.complementaire_automate(automate)
                 else:
                     return jsonify({'error': f'Unknown operation: {operation}'}), 400
@@ -127,90 +155,53 @@ class AutomatonFlaskServer:
                 logger.error(traceback.format_exc())
                 return jsonify({'error': f'Transformation failed: {str(e)}'}), 500
 
+        # Binary automaton operations
         @self.app.route('/api/automaton/union', methods=['POST'])
         def union_automata():
-            try:
-                data = request.get_json()
-                if not data or 'automaton1' not in data or 'automaton2' not in data:
-                    return jsonify({'error': 'Missing automaton parameters'}), 400
-                
-                # Validate both automata
-                if not self._validate_automaton_structure(data['automaton1']) or \
-                   not self._validate_automaton_structure(data['automaton2']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                auto1 = self._dict_to_automate(data['automaton1'])
-                auto2 = self._dict_to_automate(data['automaton2'])
-                result_automate = self.gestionnaire.union_automates(auto1, auto2)
-                result = self._automate_to_dict(result_automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'operation': 'union',
-                    'message': 'Union completed successfully'
-                })
-            except Exception as e:
-                logger.error(f"Error in union operation: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Union operation failed: {str(e)}'}), 500
+            """Union of two automata"""
+            return self._binary_operation('union')
 
         @self.app.route('/api/automaton/intersection', methods=['POST'])
         def intersection_automata():
-            try:
-                data = request.get_json()
-                if not data or 'automaton1' not in data or 'automaton2' not in data:
-                    return jsonify({'error': 'Missing automaton parameters'}), 400
-                
-                if not self._validate_automaton_structure(data['automaton1']) or \
-                   not self._validate_automaton_structure(data['automaton2']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                auto1 = self._dict_to_automate(data['automaton1'])
-                auto2 = self._dict_to_automate(data['automaton2'])
-                result_automate = self.gestionnaire.intersection_automates(auto1, auto2)
-                result = self._automate_to_dict(result_automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'operation': 'intersection',
-                    'message': 'Intersection completed successfully'
-                })
-            except Exception as e:
-                logger.error(f"Error in intersection operation: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Intersection operation failed: {str(e)}'}), 500
+            """Intersection of two automata"""
+            return self._binary_operation('intersection')
 
         @self.app.route('/api/automaton/concatenation', methods=['POST'])
         def concatenation_automata():
+            """Concatenation of two automata"""
+            return self._binary_operation('concatenation')
+
+        @self.app.route('/api/operations', methods=['POST'])  # Legacy endpoint
+        def legacy_operations():
+            """Legacy endpoint for binary operations"""
             try:
                 data = request.get_json()
-                if not data or 'automaton1' not in data or 'automaton2' not in data:
-                    return jsonify({'error': 'Missing automaton parameters'}), 400
+                if not data or 'automate1' not in data or 'automate2' not in data or 'operation' not in data:
+                    return jsonify({'error': 'Missing required parameters'}), 400
                 
-                if not self._validate_automaton_structure(data['automaton1']) or \
-                   not self._validate_automaton_structure(data['automaton2']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
+                # Convert to new format
+                new_data = {
+                    'automaton1': data['automate1'] if isinstance(data['automate1'], dict) else json.loads(data['automate1']),
+                    'automaton2': data['automate2'] if isinstance(data['automate2'], dict) else json.loads(data['automate2'])
+                }
                 
-                auto1 = self._dict_to_automate(data['automaton1'])
-                auto2 = self._dict_to_automate(data['automaton2'])
-                result_automate = self.gestionnaire.concatenation_automates(auto1, auto2)
-                result = self._automate_to_dict(result_automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'operation': 'concatenation',
-                    'message': 'Concatenation completed successfully'
-                })
+                operation = data['operation']
+                if operation == 'union':
+                    return self._binary_operation_with_data('union', new_data)
+                elif operation == 'intersection':
+                    return self._binary_operation_with_data('intersection', new_data)
+                elif operation == 'concatenation':
+                    return self._binary_operation_with_data('concatenation', new_data)
+                else:
+                    return jsonify({'error': f'Unknown operation: {operation}'}), 400
+                    
             except Exception as e:
-                logger.error(f"Error in concatenation operation: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Concatenation operation failed: {str(e)}'}), 500
+                logger.error(f"Error in legacy operations: {str(e)}")
+                return jsonify({'error': f'Operation failed: {str(e)}'}), 500
 
         @self.app.route('/api/automaton/kleene', methods=['POST'])
         def kleene_star():
+            """Kleene star of automaton"""
             try:
                 data = request.get_json()
                 if not data or 'automaton' not in data:
@@ -234,17 +225,30 @@ class AutomatonFlaskServer:
                 logger.error(traceback.format_exc())
                 return jsonify({'error': f'Kleene star operation failed: {str(e)}'}), 500
 
+        # Word testing
         @self.app.route('/api/automaton/test', methods=['POST'])
+        @self.app.route('/api/tester', methods=['POST'])  # Legacy endpoint
         def test_word():
+            """Test word acceptance"""
             try:
                 data = request.get_json()
                 if not data or 'automaton' not in data or 'word' not in data:
-                    return jsonify({'error': 'Missing automaton or word parameter'}), 400
+                    # Support legacy format
+                    if 'automate' in data and 'mot' in data:
+                        data['automaton'] = data['automate']
+                        data['word'] = data['mot']
+                    else:
+                        return jsonify({'error': 'Missing automaton or word parameter'}), 400
                 
-                if not self._validate_automaton_structure(data['automaton']):
+                # Handle legacy JSON string format
+                automaton_data = data['automaton']
+                if isinstance(automaton_data, str):
+                    automaton_data = json.loads(automaton_data)
+                
+                if not self._validate_automaton_structure(automaton_data):
                     return jsonify({'error': 'Invalid automaton structure'}), 400
                 
-                automate = self._dict_to_automate(data['automaton'])
+                automate = self._dict_to_automate(automaton_data)
                 word = data['word']
                 
                 # Handle empty word case
@@ -256,6 +260,7 @@ class AutomatonFlaskServer:
                 return jsonify({
                     'success': True,
                     'accepted': accepted,
+                    'result': accepted,  # Legacy format support
                     'word': word,
                     'message': f'Word "{word}" {"accepted" if accepted else "rejected"}'
                 })
@@ -266,6 +271,7 @@ class AutomatonFlaskServer:
 
         @self.app.route('/api/automaton/compare', methods=['POST'])
         def compare_automata():
+            """Compare automata equivalence"""
             try:
                 data = request.get_json()
                 if not data or 'automaton1' not in data or 'automaton2' not in data:
@@ -291,6 +297,7 @@ class AutomatonFlaskServer:
 
         @self.app.route('/api/automaton/export', methods=['POST'])
         def export_automaton():
+            """Export automaton in various formats"""
             try:
                 data = request.get_json()
                 if not data or 'automaton' not in data or 'format' not in data:
@@ -323,6 +330,7 @@ class AutomatonFlaskServer:
 
         @self.app.route('/api/automaton/trace', methods=['POST'])
         def trace_word():
+            """Trace word recognition through automaton"""
             try:
                 data = request.get_json()
                 if not data or 'automaton' not in data or 'word' not in data:
@@ -389,8 +397,10 @@ class AutomatonFlaskServer:
                 logger.error(traceback.format_exc())
                 return jsonify({'error': f'Word tracing failed: {str(e)}'}), 500
 
+        # History and utility endpoints
         @self.app.route('/api/automaton/history', methods=['GET'])
         def get_operations_history():
+            """Get operations history"""
             try:
                 return jsonify({
                     'success': True,
@@ -402,6 +412,7 @@ class AutomatonFlaskServer:
 
         @self.app.route('/api/automaton/clear-history', methods=['POST'])
         def clear_operations_history():
+            """Clear operations history"""
             try:
                 self.gestionnaire.operations_history.clear()
                 return jsonify({
@@ -412,7 +423,19 @@ class AutomatonFlaskServer:
                 logger.error(f"Error clearing history: {str(e)}")
                 return jsonify({'error': f'Failed to clear history: {str(e)}'}), 500
 
+        # API endpoints listing
+        @self.app.route('/api/endpoints', methods=['GET'])
+        def list_endpoints():
+            """List all available API endpoints"""
+            endpoints = self.generer_api_endpoints()
+            return jsonify({
+                'success': True,
+                'endpoints': list(endpoints.keys()),
+                'total': len(endpoints)
+            })
+
     def _setup_error_handlers(self):
+        """Setup error handlers"""
         @self.app.errorhandler(404)
         def not_found(error):
             return jsonify({'error': 'Endpoint not found'}), 404
@@ -426,9 +449,54 @@ class AutomatonFlaskServer:
             logger.error(f"Internal server error: {str(error)}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _binary_operation(self, operation: str):
+        """Helper method for binary operations"""
+        try:
+            data = request.get_json()
+            return self._binary_operation_with_data(operation, data)
+        except Exception as e:
+            logger.error(f"Error in {operation} operation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'{operation.title()} operation failed: {str(e)}'}), 500
+
+    def _binary_operation_with_data(self, operation: str, data: dict):
+        """Execute binary operation with given data"""
+        if not data or 'automaton1' not in data or 'automaton2' not in data:
+            return jsonify({'error': 'Missing automaton parameters'}), 400
+        
+        # Validate both automata
+        if not self._validate_automaton_structure(data['automaton1']) or \
+           not self._validate_automaton_structure(data['automaton2']):
+            return jsonify({'error': 'Invalid automaton structure'}), 400
+        
+        auto1 = self._dict_to_automate(data['automaton1'])
+        auto2 = self._dict_to_automate(data['automaton2'])
+        
+        if operation == 'union':
+            result_automate = self.gestionnaire.union_automates(auto1, auto2)
+        elif operation == 'intersection':
+            result_automate = self.gestionnaire.intersection_automates(auto1, auto2)
+        elif operation == 'concatenation':
+            result_automate = self.gestionnaire.concatenation_automates(auto1, auto2)
+        else:
+            return jsonify({'error': f'Unknown operation: {operation}'}), 400
+        
+        result = self._automate_to_dict(result_automate)
+        
+        return jsonify({
+            'success': True,
+            'automaton': result,
+            'operation': operation,
+            'message': f'{operation.title()} completed successfully'
+        })
+
     def _validate_automaton_structure(self, data: Dict[str, Any]) -> bool:
         """Validate that the automaton data has the required structure"""
         try:
+            # Handle legacy format conversion
+            if 'etats' in data:
+                data = self._convert_legacy_format(data)
+            
             required_fields = ['alphabet', 'states', 'initial_state', 'final_states', 'transitions']
             
             # Check all required fields exist
@@ -475,8 +543,11 @@ class AutomatonFlaskServer:
                     logger.error("Each transition must be a dictionary")
                     return False
                 
-                required_trans_fields = ['source', 'symbol', 'destination']
-                for field in required_trans_fields:
+                # Support both formats
+                required_trans_fields = ['source', 'destination']
+                symbol_field = 'symbol' if 'symbol' in transition else 'symbole'
+                
+                for field in required_trans_fields + [symbol_field]:
                     if field not in transition:
                         logger.error(f"Transition missing field: {field}")
                         return False
@@ -491,8 +562,9 @@ class AutomatonFlaskServer:
                     return False
                 
                 # Validate symbol is in alphabet
-                if transition['symbol'] not in data['alphabet']:
-                    logger.error(f"Transition symbol {transition['symbol']} not in alphabet")
+                symbol = transition[symbol_field]
+                if symbol != '' and symbol not in data['alphabet']:
+                    logger.error(f"Transition symbol {symbol} not in alphabet")
                     return False
             
             return True
@@ -500,6 +572,23 @@ class AutomatonFlaskServer:
         except Exception as e:
             logger.error(f"Error validating automaton structure: {str(e)}")
             return False
+
+    def _convert_legacy_format(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert legacy format to new format"""
+        return {
+            'alphabet': data.get('alphabet', []),
+            'states': data.get('etats', []),
+            'initial_state': data.get('etat_initial', ''),
+            'final_states': data.get('etats_finaux', []),
+            'transitions': [
+                {
+                    'source': t.get('source', ''),
+                    'symbol': t.get('symbole', t.get('symbol', '')),
+                    'destination': t.get('destination', '')
+                }
+                for t in data.get('transitions', [])
+            ]
+        }
 
     def _automate_to_dict(self, automate: Automate) -> Dict[str, Any]:
         """Convert Automate object to dictionary format expected by client"""
@@ -522,6 +611,10 @@ class AutomatonFlaskServer:
 
     def _dict_to_automate(self, data: Dict[str, Any]) -> Automate:
         """Convert dictionary to Automate object"""
+        # Handle legacy format
+        if 'etats' in data:
+            data = self._convert_legacy_format(data)
+        
         # Create states
         etats = {Etat(name) for name in data['states']}
         etat_initial = None
@@ -548,33 +641,110 @@ class AutomatonFlaskServer:
         for transition in data['transitions']:
             source = next(e for e in etats if str(e) == transition['source'])
             dest = next(e for e in etats if str(e) == transition['destination'])
-            automate.ajouter_transition(source, transition['symbol'], dest)
+            symbol = transition.get('symbol', transition.get('symbole', ''))
+            automate.ajouter_transition(source, symbol, dest)
         
         return automate
 
+    def generer_api_endpoints(self) -> Dict[str, str]:
+        """Generate API endpoints description"""
+        return {
+            # Regex operations
+            "/api/regex/convert": "Convert regex to automaton",
+            "/api/regex/validate": "Validate regex syntax",
+            "/api/regex": "Legacy: Convert regex to automaton",
+            
+            # Single automaton operations
+            "/api/automaton/transform": "Transform automaton (determinize, minimize, complete, complement)",
+            "/api/transformer": "Legacy: Transform automaton",
+            
+            # Binary automaton operations
+            "/api/automaton/union": "Union of two automata",
+            "/api/automaton/intersection": "Intersection of two automata",
+            "/api/automaton/concatenation": "Concatenation of two automata",
+            "/api/operations": "Legacy: Binary operations on automata",
+            
+            # Unary operations
+            "/api/automaton/kleene": "Kleene star of automaton",
+            
+            # Testing and comparison
+            "/api/automaton/test": "Test word acceptance",
+            "/api/tester": "Legacy: Test word acceptance",
+            "/api/automaton/compare": "Compare automata equivalence",
+            "/api/automaton/trace": "Trace word recognition",
+            
+            # Utility
+            "/api/automaton/export": "Export automaton in various formats",
+            "/api/automaton/history": "Get operations history",
+            "/api/automaton/clear-history": "Clear operations history",
+            "/api/endpoints": "List all available endpoints",
+            "/api/health": "Health check"
+        }
+
+    def ouvrir_navigateur(self) -> None:
+        """Open interface in browser"""
+        if self.auto_open_browser:
+            def open_browser():
+                time.sleep(1.5)  # Wait for server to start
+                webbrowser.open(f"http://{self.host}:{self.port}")
+            
+            browser_thread = threading.Thread(target=open_browser)
+            browser_thread.daemon = True
+            browser_thread.start()
+
+    def demarrer_serveur(self) -> None:
+        """Start the server (legacy method name)"""
+        self.run()
+
+    def arreter_serveur(self) -> None:
+        """Stop the server (legacy method name)"""
+        self.stop()
+
     def run(self):
-        logger.info(f"Starting Automaton Flask Server on {self.host}:{self.port}")
+        """Start the Flask server"""
+        logger.info(f"Starting Enhanced Automaton Server on {self.host}:{self.port}")
+        
+        # Open browser if requested
+        self.ouvrir_navigateur()
+        
         self.app.run(
             host=self.host,
             port=self.port,
             debug=self.debug
         )
 
+    def run_threaded(self):
+        """Run server in a separate thread"""
+        self.server_thread = threading.Thread(target=self.run)
+        self.server_thread.daemon = True
+        self.server_thread.start()
+        return self.server_thread
+
+    def stop(self):
+        """Stop the server"""
+        # Flask doesn't have a built-in stop method, 
+        # this would need to be implemented with werkzeug
+        logger.info("Server stop requested")
+
 def create_app():
-    server = AutomatonFlaskServer()
+    """Factory function to create Flask app"""
+    server = AutomatonServer()
     return server.app
 
 def main():
-    server = AutomatonFlaskServer(
+    """Main entry point"""
+    server = AutomatonServer(
         host='localhost',
         port=8080,
-        debug=True
+        debug=True,
+        auto_open_browser=True
     )
-    print("=" * 50)
-    print("🤖 Automaton Flask Server")
-    print("=" * 50)
+    
+    print("=" * 60)
+    print("🤖 Automaton Server v2.0")
+    print("=" * 60)
     print(f"🌐 Server: http://{server.host}:{server.port}")
-    print(f"📚 API Docs: http://{server.host}:{server.port}/api/health")
+    print(f"📚 Health: http://{server.host}:{server.port}/api/health")
     print("=" * 50)
     print("Available endpoints:")
     print("  • POST /api/regex/convert - Convert regex to automaton")

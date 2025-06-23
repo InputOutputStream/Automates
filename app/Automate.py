@@ -43,13 +43,15 @@ class Automate(ABC):
         else :
             raise ValueError("L'état initial doit être défini et appartenir aux états")
         
-        if etats_finaux is not None and etats_finaux & self.etats :
+        
+        if not etats_finaux or not etats_finaux.issubset(self.etats):
+            raise ValueError("Tous les états finaux doivent faire partie de l'ensemble des états.")
+
+        else :
             self.etats_finaux = etats_finaux  
             for etat in self.etats_finaux:
                 etat.est_final = True
-        else :
-            raise ValueError("Un automate doit avoir des états finaux")
-        
+                
     def ajouter_transition(self, source: Etat, symbole: str, destination: Etat):
         """Ajoute une transition à l'automate."""
         if source not in self.transitions:
@@ -58,7 +60,115 @@ class Automate(ABC):
             self.transitions[source][symbole] = set()
         self.transitions[source][symbole].add(destination)
 
-    def matrice_a_automate(self, matrice: list[list]):
+
+    def fermeture_epsilon(self, etats: Set[Etat]) -> Set[Etat]:
+        """
+        Calcule la fermeture epsilon d'un ensemble d'états.
+        Utilise '' ou 'ε' comme symbole epsilon.
+        """
+        fermeture = set(etats)
+        pile = list(etats)
+        
+        while pile:
+            etat_courant = pile.pop()
+            
+            # Vérifier les transitions epsilon ('' ou 'ε')
+            for epsilon in ['', 'ε']:
+                if (etat_courant in self.transitions and 
+                    epsilon in self.transitions[etat_courant]):
+                    
+                    for etat_destination in self.transitions[etat_courant][epsilon]:
+                        if etat_destination not in fermeture:
+                            fermeture.add(etat_destination)
+                            pile.append(etat_destination)
+        
+        return fermeture
+
+    def determinisation_thompson(self) -> 'AD':
+        """
+        Déterminisation par l'algorithme de Thompson.
+        Utilise la construction par sous-ensembles avec fermeture epsilon.
+        """
+        # État initial : fermeture epsilon de l'état initial
+        etat_initial_det = self.fermeture_epsilon({self.etat_initial})
+        
+        # Structures pour la construction
+        etats_det = {}  # Dict: frozenset -> Etat
+        transitions_det = {}
+        etats_a_traiter = deque()
+        
+        # Créer l'état initial déterministe
+        nom_initial = "{" + ",".join(sorted(e.nom for e in etat_initial_det)) + "}"
+        etat_initial_automate_det = Etat(nom_initial)
+        etats_det[frozenset(etat_initial_det)] = etat_initial_automate_det
+        etats_a_traiter.append(etat_initial_det)
+        
+        while etats_a_traiter:
+            ensemble_courant = etats_a_traiter.popleft()
+            etat_courant_det = etats_det[frozenset(ensemble_courant)]
+            
+            # Pour chaque symbole de l'alphabet
+            for symbole in self.alphabet:
+                if symbole in ['', 'ε']:  # Ignorer epsilon
+                    continue
+                    
+                # Calculer l'ensemble des états accessibles
+                etats_accessibles = set()
+                
+                for etat in ensemble_courant:
+                    if (etat in self.transitions and 
+                        symbole in self.transitions[etat]):
+                        etats_accessibles.update(self.transitions[etat][symbole])
+                
+                if not etats_accessibles:
+                    continue
+                
+                # Appliquer la fermeture epsilon
+                nouvel_ensemble = self.fermeture_epsilon(etats_accessibles)
+                
+                if not nouvel_ensemble:
+                    continue
+                
+                # Créer ou récupérer l'état déterministe correspondant
+                if frozenset(nouvel_ensemble) not in etats_det:
+                    nom_nouvel_etat = "{" + ",".join(sorted(e.nom for e in nouvel_ensemble)) + "}"
+                    nouvel_etat_det = Etat(nom_nouvel_etat)
+                    etats_det[frozenset(nouvel_ensemble)] = nouvel_etat_det
+                    etats_a_traiter.append(nouvel_ensemble)
+                else:
+                    nouvel_etat_det = etats_det[frozenset(nouvel_ensemble)]
+                
+                # Ajouter la transition
+                if etat_courant_det not in transitions_det:
+                    transitions_det[etat_courant_det] = {}
+                if symbole not in transitions_det[etat_courant_det]:
+                    transitions_det[etat_courant_det][symbole] = set()
+                transitions_det[etat_courant_det][symbole].add(nouvel_etat_det)
+        
+        # Déterminer les états finaux
+        etats_finaux_det = set()
+        for ensemble_etats, etat_det in etats_det.items():
+            if any(etat in self.etats_finaux for etat in ensemble_etats):
+                etats_finaux_det.add(etat_det)
+        
+        # Créer l'automate déterministe
+        print(self.alphabet,
+            set(etats_det.values()),
+            etat_initial_automate_det,
+            etats_finaux_det
+        )
+
+        automate_det = AD(
+            alphabet=self.alphabet,
+            etats=set(etats_det.values()),
+            etat_initial=etat_initial_automate_det,
+            etats_finaux=etats_finaux_det
+        )
+        automate_det.transitions = transitions_det
+        
+        return automate_det
+    
+    def deterterminisation_glushkov(self):
         pass
 
     def automate_a_matrice(self):
@@ -79,8 +189,8 @@ class Automate(ABC):
                             matrice[i][j].add(k)
         
         return matrice, etats_list, alphabet_list
-    
-    
+
+   
     def supprimer_transition(self, etat_source: str, symbole: str, etat_cible: str) -> None:
         """Supprime une transition de l'automate."""
         if (etat_source in self.transitions and 
@@ -212,7 +322,8 @@ class Automate(ABC):
     
 
 
-class ADC(Automate):
+
+class AD(Automate):
     """Automate Déterministe Complet."""
     
     def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
@@ -279,8 +390,23 @@ class ADC(Automate):
     
     def afficher(self) -> str:
         """Affichage spécifique aux ADC."""
-        return f"ADC:\n{super().afficher()}"
+        return f"AD:\n{super().afficher()}"
 
+
+
+
+
+class ADC(AD):
+    """Automate Déterministe Complet."""
+    
+    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
+                 etats_finaux: Set[Etat]) -> None:
+        """Initialise un ADC."""
+        super().__init__(alphabet, etats_finaux, etats, etat_initial)
+        if not self.est_deterministe():
+            raise ValueError("L'automate doit être déterministe")
+        if not self.est_complet():
+            raise ValueError("L'automate doit être complet")
 
 class AFDC(ADC):
     """Automate Fini Déterministe Complet."""

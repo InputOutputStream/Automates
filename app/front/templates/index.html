@@ -145,6 +145,32 @@
             </div>
         </div>
 
+        
+        <!-- Equation solve by subtitution method Tab -->
+        <div id="eqn-tab" class="tab-content">
+            <div class="grid">
+                <div class="card">
+                    <h2>Solve esquations by subtitutuin method</h2>
+                    <form id="test-form">
+                        <div class="form-group">
+                            <label for="test-automaton-input">Automaton (JSON):</label>
+                            <input type="text" id="eqn-input" placeholder="e.g., X1=aX2+bX1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="eqn-input">Equation to solve:</label>
+                            <input type="text" id="eqn-input" placeholder="e.g., X1=aX2+bX1" required>
+                        </div>
+                        <button type="submit" class="btn">Test Word</button>
+                    </form>
+                    <div id="test-result"></div>
+                </div>
+                <div class="card">
+                    <h2>Automaton Graph</h2>
+                    <div id="test-graph" class="graph-container"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- History and Utilities -->
         <div class="card">
             <h2>Operation History</h2>
