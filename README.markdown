@@ -61,8 +61,7 @@ Automates/
 │   ├── Monoids.py               # Structures algébriques
 │   ├── Mot.py                   # Manipulation de mots
 │   └── front/                   # Interface web
-│       ├── ServeurLocal.py      # Serveur Flask
-│       ├── APIHandler.py        # Gestionnaire API
+│       ├── serveur.py      # Serveur Flask
 │       ├── GestionnaireOperations.py # Logique métier
 │       ├── RegexParser.py       # Analyseur regex
 ├── index.html                   # Interface utilisateur
