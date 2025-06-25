@@ -67,6 +67,10 @@ class Langage:
         
         return Langage(nouveaux_mots, nouvel_alphabet)
 
+    def contient(self, mot: Mot) -> bool:
+        """Appartenance d'un mot a un langage langages."""
+        return self.contient_mot(mot)
+    
     def contient_mot(self, mot: Mot) -> bool:
         """Appartenance d'un mot a un langage langages."""
         return mot in self.mots  

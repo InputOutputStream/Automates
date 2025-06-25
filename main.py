@@ -22,3 +22,4 @@ if __name__ == '__main__':
         port=5000,       # Port par défaut
         debug=True       # Mode debug pour le développement
     )
+

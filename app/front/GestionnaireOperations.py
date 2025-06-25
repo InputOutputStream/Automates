@@ -56,6 +56,12 @@ class GestionnaireOperations:
         self.operations_history.append("Complémentation")
         return automate.complementaire()
     
+    def automaton2reg(self, equations: list):
+        """Application du lemme d'arden """
+        print("Equations: ", equations)
+        # Langagerationel.appliquer_lemmes_arden()
+        pass
+
     def union_automates(self, auto1: Automate, auto2: Automate) -> Automate:
         """Union de deux automates"""
         self.operations_history.append("Union")
@@ -140,8 +146,8 @@ class GestionnaireOperations:
     def tester_equivalence(self, auto1: Automate, auto2: Automate) -> bool:
         """Test d'équivalence"""
         self.operations_history.append("Test d'équivalence")
-        auto1_min = self.minimiser_automate(auto1.determiniser()) if isinstance(auto1, AND) else auto1
-        auto2_min = self.minimiser_automate(auto2.determiniser()) if isinstance(auto2, AND) else auto2
+        auto1_min = self.minimiser_automate(auto1.determinisation_thompson()) if isinstance(auto1, AND) else auto1
+        auto2_min = self.minimiser_automate(auto2.determinisation_thompson()) if isinstance(auto2, AND) else auto2
         return auto1_min.etats == auto2_min.etats and auto1_min.transitions == auto2_min.transitions
     
     def generer_donnees_json(self, automate: Automate) -> str:

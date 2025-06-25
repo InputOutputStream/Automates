@@ -104,6 +104,32 @@ class AutomatonServer:
                 logger.error(f"Error validating regex: {str(e)}")
                 return jsonify({'error': f'Regex validation failed: {str(e)}'}), 500
 
+        @self.app.route('/api/automaton/eqn2regex', methods=['POST'])
+        @self.app.route('/api/eqn2regex', methods=['POST'])  # Legacy endpoint
+        def eqn2regex():
+            """From equations to regex using Arden Lemma"""
+
+            try:
+                data = request.get_json()
+                if not data or 'equations' not in data:
+                    # Support legacy format
+                    if 'equations' in data:
+                        data['equations'] = data['equations']
+                    else:
+                        return jsonify({'error': 'Missing equation or operation parameter'}), 400
+                
+                equations = data['equations']
+                
+                if not self._validate_equations(equations):
+                    return jsonify({'error': 'Invalid equations format structure'}), 400
+                
+                self.gestionnaire.automaton2reg(equations)
+                
+                logger.info(f"Solving Equations")
+                
+            except:
+                pass
+
         # Single automaton operations
         @self.app.route('/api/automaton/transform', methods=['POST'])
         @self.app.route('/api/transformer', methods=['POST'])  # Legacy endpoint
@@ -142,6 +168,7 @@ class AutomatonServer:
                 else:
                     return jsonify({'error': f'Unknown operation: {operation}'}), 400
                 
+                result_automate.afficher()
                 result = self._automate_to_dict(result_automate)
                 
                 return jsonify({

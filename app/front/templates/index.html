@@ -20,6 +20,7 @@
             <div class="tab" onclick="showTab('transform')">Transformations</div>
             <div class="tab" onclick="showTab('operations')">Operations</div>
             <div class="tab" onclick="showTab('test')">Word Testing</div>
+            <div class="tab" onclick="showTab('eqn')">Equations</div>
         </div>
 
         <!-- Regex Conversion Tab -->
@@ -146,30 +147,41 @@
         </div>
 
         
-        <!-- Equation solve by subtitution method Tab -->
+        <!-- Equation solve by substitution method Tab -->
         <div id="eqn-tab" class="tab-content">
             <div class="grid">
                 <div class="card">
-                    <h2>Solve esquations by subtitutuin method</h2>
-                    <form id="test-form">
+                    <h2>Solve equations by substitution method</h2>
+                    <form id="eqn-form">
                         <div class="form-group">
-                            <label for="test-automaton-input">Automaton (JSON):</label>
-                            <input type="text" id="eqn-input" placeholder="e.g., X1=aX2+bX1" required>
+                            <label for="eqn-automaton-input">Automaton (JSON):</label>
+                            <textarea id="eqn-automaton-input" rows="6" required></textarea>
+                            <button type="submit" class="btn">Solve</button>
                         </div>
-                        <div class="form-group">
-                            <label for="eqn-input">Equation to solve:</label>
-                            <input type="text" id="eqn-input" placeholder="e.g., X1=aX2+bX1" required>
+
+                        <div class="form-group" id="equation-fields">
+                            <label for="eqn-input-1">Equation to solve:</label>
+                            <input type="text" id="eqn-input-1" placeholder="e.g., X1=aX2+bX1" required>
+                            <input type="text" id="eqn-input-2" placeholder="e.g., X2=bX1+a" required>
                         </div>
-                        <button type="submit" class="btn">Test Word</button>
+                        <label for="alphabet">Alphabet: </label>
+                        <input type="text" id="alphabet" class="alphabet-zone" placeholder="a,b,c" required>
+                        
+                        <button type="button" id="add-eqn" class="btn">Add Equation</button>
+                        <button type="button" id="rm-eqn" class="btn">Remove Equation</button>
+                        
+                        <button type="submit" class="btn">Solve</button>
                     </form>
-                    <div id="test-result"></div>
+                    <div id="regex-result"></div>
                 </div>
                 <div class="card">
                     <h2>Automaton Graph</h2>
-                    <div id="test-graph" class="graph-container"></div>
+                    <div id="t-graph" class="graph-container"></div>
                 </div>
             </div>
         </div>
+
+
 
         <!-- History and Utilities -->
         <div class="card">

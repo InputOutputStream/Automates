@@ -200,6 +200,115 @@ function initializeFormListeners() {
             return false;
         });
     }
+
+    // Handler for Add Equation Button (outside submit)
+    const add_btn = document.getElementById("add-eqn");
+    const rm_btn = document.getElementById("rm-eqn");
+    const container = document.getElementById("equation-fields");
+    const alphabet = document.getElementById("alphabet");
+
+    if (add_btn && container && rm_btn) {
+        add_btn.addEventListener("click", () => {
+            const index = container.querySelectorAll("input").length + 1;
+            const input = document.createElement("input");
+            input.type = "text";
+            input.id = `eqn-input-${index}`;
+            input.placeholder = `e.g., X${index}=...`;
+            input.required = true;
+            container.appendChild(input);
+        });
+
+       rm_btn.addEventListener("click", () => {
+        const inputs = container.querySelectorAll("input");
+        if (inputs.length > 0) {  // Add this check
+            const index = inputs.length;
+            const last_input = document.getElementById(`eqn-input-${index}`);
+            if (last_input) container.removeChild(last_input);
+        }
+    });
+    }
+
+    // Handler for Equation Form Submission
+    const eqn_form = document.getElementById('eqn-form');
+    if (eqn_form) {
+        eqn_form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const automaton = document.getElementById('eqn-automaton-input').value.trim();
+
+            if (!automaton) {
+                showResult('regex-result', 'Please enter an automaton before.', 'error');
+                return false;
+            }
+
+            // Validate JSON
+            try {
+                JSON.parse(automaton);
+            } catch (error) {
+                showResult('regex-result', 'Invalid JSON format for automaton.', 'error');
+                return false;
+            }
+
+            showResult('regex-result', '<div class="loading"></div> Calculating...', 'info');
+
+            // Call API to convert automaton to regex
+            const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'regex-result');
+
+            if (!response || !response.regex) {
+                showResult('regex-result', 'Failed to get regex from API.', 'error');
+                return false;
+            }
+
+            const regex = response.regex;
+
+            addToHistory('Automaton To Regex', { automaton }, { regex });
+            showResult('regex-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
+            animateRecognition(JSON.parse(automaton), regex, 't-graph');
+
+            // Handle Equations
+            if (!container) {
+                showResult('regex-result', 'Missing equation container.', 'error');
+                return false;
+            }
+
+            if(!alphabet)
+            {
+                showResult('regex-result', 'Missing Alphabet for equation', 'error');
+                return false;     
+            }
+
+            try {
+                const eqn_list = [];
+                container.querySelectorAll("input").forEach(eqn => {
+                    eqn_list.push(eqn.value.trim());
+                });
+
+                if (eqn_list.length === 0 || eqn_list.some(eq => eq === "")) {
+                    showResult('regex-result', 'Please fill all equations.', 'error');
+                    return false;
+                }
+
+                const eqnResponse = await makeAPICall('/api/automaton/eqn2regex', {
+                    regex,
+                    equations: eqn_list,
+                    alphabet: alphabet.value.trim()
+                }, 'regex-result');
+
+                if (eqnResponse) {
+                    addToHistory('Equation To Regex', { regex, equations: eqn_list });
+                    showResult('regex-result',
+                        `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
+                }
+
+            } catch (error) {
+                showResult('regex-result', 'Invalid equation input format.', 'error');
+            }
+
+            return false;
+        });
+    }
+
 }
 
 let operationHistory = [];
