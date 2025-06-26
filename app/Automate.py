@@ -63,6 +63,29 @@ class Automate(ABC):
         self.transitions[source][symbole].add(destination)
 
 
+    def epsilon_fermeture(self, etat: Etat) -> Set[Etat]:
+        if etat is None:
+            return set()
+        
+        fermeture = {etat}
+        pile = deque([etat])
+        
+        while pile:
+            etat_courant = pile.pop()
+            for etat_suivant in self.obtenir_transitions(etat_courant, self.epsilon):
+                if etat_suivant not in fermeture:
+                    fermeture.add(etat_suivant)
+                    pile.append(etat_suivant)
+        
+        return fermeture
+    
+    def epsilon_fermeture_ensemble(self, ensemble_etats: Set[Etat]) -> Set[Etat]:
+        """Calcule l'ε-fermeture d'un ensemble d'états."""
+        fermeture = set()
+        for etat in ensemble_etats:
+            fermeture.update(self.epsilon_fermeture(etat))
+        return fermeture
+
     def fermeture_epsilon(self, etats: Set[Etat]) -> Set[Etat]:
         """
         Calcule la fermeture epsilon d'un ensemble d'états.
@@ -170,141 +193,7 @@ class Automate(ABC):
         
         return automate_det
     
-    def determinisation_brzozowski(self) -> 'AD':
-        """
-        Déterminisation par l'algorithme de Brzozowski.
-        Principe: reverse → déterminiser → reverse → déterminiser
-        """
-        # Étape 1: Inverser l'automate
-        automate_inverse = self._inverser()
-        
-        # Étape 2: Déterminiser l'automate inversé
-        automate_inverse_det = automate_inverse._determiniser_construction_sous_ensembles()
-        
-        # Étape 3: Inverser à nouveau
-        automate_inverse_inverse = automate_inverse_det._inverser()
-        
-        # Étape 4: Déterminiser une dernière fois
-        automate_final = automate_inverse_inverse._determiniser_construction_sous_ensembles()
-        
-        return automate_final
-
-    
-    def _inverser(self) -> 'AFND':
-        """Inverse l'automate (inverse les transitions et échange initial/finaux)."""
-        # Créer un nouvel état initial unique
-        nouvel_initial = Etat("init_inverse")
-        nouveaux_etats = self.etats.copy()
-        nouveaux_etats.add(nouvel_initial)
-        
-        # Les anciens états finaux deviennent sources vers le nouvel initial
-        nouvelles_transitions = {}
-        
-        # Inverser toutes les transitions
-        for source, trans_dict in self.transitions.items():
-            for symbole, destinations in trans_dict.items():
-                for dest in destinations:
-                    if dest not in nouvelles_transitions:
-                        nouvelles_transitions[dest] = {}
-                    if symbole not in nouvelles_transitions[dest]:
-                        nouvelles_transitions[dest][symbole] = set()
-                    nouvelles_transitions[dest][symbole].add(source)
-        
-        # Ajouter transitions depuis nouvel initial vers anciens états finaux
-        nouvelles_transitions[nouvel_initial] = {}
-        for symbole in self.alphabet:
-            nouvelles_transitions[nouvel_initial][symbole] = set()
-        
-        # Epsilon transitions depuis nouvel initial vers anciens finaux
-        if self.epsilon in self.alphabet:
-            nouvelles_transitions[nouvel_initial][self.epsilon] = self.etats_finaux.copy()
-        
-        # Créer l'automate inversé
-        automate_inverse = AFND(
-            alphabet=self.alphabet,
-            etats=nouveaux_etats,
-            etat_initial=nouvel_initial,
-            etats_finaux={self.etat_initial}  # Ancien initial devient final
-        )
-        
-        automate_inverse.transitions = nouvelles_transitions
-        return automate_inverse
-
-    
-    def _determiniser_construction_sous_ensembles(self) -> 'AD':
-        """Construction par sous-ensembles standard."""
-        from collections import deque
-        
-        # État initial : fermeture epsilon de l'état initial
-        etat_initial_det = self.epsilon_fermeture(self.etat_initial)
-        
-        # Structures pour la construction
-        etats_det = {}
-        transitions_det = {}
-        etats_a_traiter = deque()
-        
-        # Créer l'état initial déterministe
-        nom_initial = "{" + ",".join(sorted(e.nom for e in etat_initial_det)) + "}"
-        etat_initial_automate_det = Etat(nom_initial)
-        etats_det[frozenset(etat_initial_det)] = etat_initial_automate_det
-        etats_a_traiter.append(etat_initial_det)
-        
-        while etats_a_traiter:
-            ensemble_courant = etats_a_traiter.popleft()
-            etat_courant_det = etats_det[frozenset(ensemble_courant)]
-            
-            for symbole in self.alphabet:
-                if symbole == self.epsilon:
-                    continue
-                    
-                etats_accessibles = set()
-                for etat in ensemble_courant:
-                    etats_accessibles.update(self.obtenir_transitions(etat, symbole))
-                
-                if not etats_accessibles:
-                    continue
-                
-                # Appliquer la fermeture epsilon
-                nouvel_ensemble = set()
-                for etat in etats_accessibles:
-                    nouvel_ensemble.update(self.epsilon_fermeture(etat))
-                
-                if not nouvel_ensemble:
-                    continue
-                
-                # Créer ou récupérer l'état déterministe
-                if frozenset(nouvel_ensemble) not in etats_det:
-                    nom_nouvel_etat = "{" + ",".join(sorted(e.nom for e in nouvel_ensemble)) + "}"
-                    nouvel_etat_det = Etat(nom_nouvel_etat)
-                    etats_det[frozenset(nouvel_ensemble)] = nouvel_etat_det
-                    etats_a_traiter.append(nouvel_ensemble)
-                else:
-                    nouvel_etat_det = etats_det[frozenset(nouvel_ensemble)]
-                
-                # Ajouter la transition
-                if etat_courant_det not in transitions_det:
-                    transitions_det[etat_courant_det] = {}
-                if symbole not in transitions_det[etat_courant_det]:
-                    transitions_det[etat_courant_det][symbole] = set()
-                transitions_det[etat_courant_det][symbole].add(nouvel_etat_det)
-        
-        # Déterminer les états finaux
-        etats_finaux_det = set()
-        for ensemble_etats, etat_det in etats_det.items():
-            if any(etat in self.etats_finaux for etat in ensemble_etats):
-                etats_finaux_det.add(etat_det)
-        
-        # Créer l'automate déterministe
-        automate_det = AD(
-            alphabet=self.alphabet - {self.epsilon} if self.epsilon in self.alphabet else self.alphabet,
-            etats=set(etats_det.values()),
-            etat_initial=etat_initial_automate_det,
-            etats_finaux=etats_finaux_det
-        )
-        automate_det.transitions = transitions_det
-        
-        return automate_det
-
+  
     def automate_a_matrice(self):
         """Conversion temporaire pour algorithmes matriciels"""
         etats_list = list(self.etats)
@@ -914,28 +803,6 @@ class AFNS(AFND):
         """Supprime une ε-transition."""
         self.supprimer_transition(etat_source, self.epsilon, etat_cible)
     
-    def epsilon_fermeture(self, etat: Etat) -> Set[Etat]:
-        if etat is None:
-            return set()
-        
-        fermeture = {etat}
-        pile = deque([etat])
-        
-        while pile:
-            etat_courant = pile.pop()
-            for etat_suivant in self.obtenir_transitions(etat_courant, self.epsilon):
-                if etat_suivant not in fermeture:
-                    fermeture.add(etat_suivant)
-                    pile.append(etat_suivant)
-        
-        return fermeture
-    
-    def epsilon_fermeture_ensemble(self, ensemble_etats: Set[Etat]) -> Set[Etat]:
-        """Calcule l'ε-fermeture d'un ensemble d'états."""
-        fermeture = set()
-        for etat in ensemble_etats:
-            fermeture.update(self.epsilon_fermeture(etat))
-        return fermeture
     
     def transiter(self, ensemble_etats: Set[Etat], symbole: str) -> Set[Etat]:
         """Calcule les transitions depuis un ensemble d'états avec un symbole."""

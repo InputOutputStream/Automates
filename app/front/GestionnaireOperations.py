@@ -33,15 +33,10 @@ class GestionnaireOperations:
         return RegexParser.valider_syntaxe(regex)
         
         
-    def determiniser_automate(self, automate: AND, type: int=1) -> AD:
+    def determiniser_automate(self, automate: AND, type: int=0) -> AD:
         """Déterminise un automate"""
         self.operations_history.append("Déterminisation")
-        if type == 1:
-            return automate.determinisation_brzozowski()
-        elif type == 0:
-            return automate.determinisation_thompson()
-        else:
-            raise ValueError("Valeur de type inconnu")
+        return automate.determinisation_thompson()
         
     def minimiser_automate(self, automate: Automate) -> AFDC:
         """Minimise un automate"""
