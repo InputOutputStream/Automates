@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeFormListeners() {
-    // Regex Form Handler
+    // Handle Regex Conversion 
     const regexForm = document.getElementById('regex-form');
     if (regexForm) {
         regexForm.addEventListener('submit', async function(e) {
@@ -37,13 +37,19 @@ function initializeFormListeners() {
                 return false;
             }
 
+            // Determine method based on which button was clicked
+            const submitter = e.submitter;
+            const method = submitter?.id === 'glushkov' ? 1 : 0;
+
             showResult('regex-result', '<div class="loading"></div> Converting...', 'info');
 
-            const result = await makeAPICall('/api/regex/convert', { regex }, 'regex-result');
+            const result = await makeAPICall('/api/regex/convert', {regex:regex, method: method }, 'regex-result');
             if (result) {
                 addToHistory('Regex to Automaton', regex, result.automaton);
                 showResult('regex-result', 
-                    `<h3>Conversion Result:</h3><pre>${JSON.stringify(result.automaton, null, 2)}</pre>`, 
+                    `<button type="button" class="btn" onclick="copyToClipboardById('regex-result-content')">
+                    📋 Copy</button>
+                    <h3>Conversion Result:</h3><pre id="regex-result-content">${JSON.stringify(result.automaton, null, 2)}</pre>`, 
                     'success'
                 );
                 renderGraph(result.automaton, 'regex-graph');
@@ -51,8 +57,6 @@ function initializeFormListeners() {
             
             return false;
         });
-    } else {
-        console.error('regex-form element not found!');
     }
 
     // Transform Form Handler
@@ -93,7 +97,9 @@ function initializeFormListeners() {
             if (response) { 
                 addToHistory(operation, automaton, response.automaton);
                 showResult('transform-result', 
-                    `<h3>${operation} Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
+                    `<button type="button" class="btn" onclick="copyToClipboardById('transform-result-content')">
+                    📋 Copy</button>
+                    <h3>${operation} Result:</h3><pre id="transform-result-content">${JSON.stringify(response.automaton, null, 2)}</pre>`, 
                     'success'
                 );
                 renderGraph(response.automaton, 'transform-graph');
@@ -143,7 +149,9 @@ function initializeFormListeners() {
             if (response) {
                 addToHistory(operation, {auto1, auto2}, response.automaton);
                 showResult('operations-result', 
-                    `<h3>${operation} Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
+                    `<button type="button" class="btn" onclick="copyToClipboardById('operations-result-content')">
+                    📋 Copy</button>
+                    <h3>${operation} Result:</h3><pre id="operations-result-content">${JSON.stringify(response.automaton, null, 2)}</pre>`, 
                     'success'
                 );
                 renderGraph(response.automaton, 'operations-graph');
@@ -188,13 +196,13 @@ function initializeFormListeners() {
                 word: word
             }, 'test-result');
             
-            if (response) {
-                addToHistory('Word Test', {automaton, word}, {accepted: response.accepted, word});
+          if (response) {
+                addToHistory('Test Word', automaton, response.accepted);
                 showResult('test-result', 
-                    `<h3>Test Result:</h3><p>Word "${word}" is <strong>${response.accepted ? 'ACCEPTED' : 'REJECTED'}</strong> by the automaton.</p>`, 
-                    response.accepted ? 'success' : 'error'
+                    `<h3>Test Result:</h3><pre>${JSON.stringify(response.accepted, null, 2)}</pre>`, 
+                    'success'
                 );
-                animateRecognition(JSON.parse(automaton), word, 'test-graph');
+                renderGraph(JSON.parse(automaton), 'test-graph');
             }
             
             return false;
@@ -214,7 +222,7 @@ function initializeFormListeners() {
             input.type = "text";
             input.id = `eqn-input-${index}`;
             input.placeholder = `e.g., X${index}=...`;
-            input.required = true;
+            input.required = false;
             container.appendChild(input);
         });
 
@@ -238,7 +246,7 @@ function initializeFormListeners() {
             const automaton = document.getElementById('eqn-automaton-input').value.trim();
 
             if (!automaton) {
-                showResult('regex-result', 'Please enter an automaton before.', 'error');
+                showResult('eqn-result', 'Please enter an automaton before.', 'error');
                 return false;
             }
 
@@ -246,35 +254,35 @@ function initializeFormListeners() {
             try {
                 JSON.parse(automaton);
             } catch (error) {
-                showResult('regex-result', 'Invalid JSON format for automaton.', 'error');
+                showResult('eqn-result', 'Invalid JSON format for automaton.', 'error');
                 return false;
             }
 
-            showResult('regex-result', '<div class="loading"></div> Calculating...', 'info');
+            showResult('eqn-result', '<div class="loading"></div> Calculating...', 'info');
 
             // Call API to convert automaton to regex
-            const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'regex-result');
+            const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'eqn-result');
 
             if (!response || !response.regex) {
-                showResult('regex-result', 'Failed to get regex from API.', 'error');
+                showResult('eqn-result', 'Failed to get regex from API.', 'error');
                 return false;
             }
 
             const regex = response.regex;
 
             addToHistory('Automaton To Regex', { automaton }, { regex });
-            showResult('regex-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
+            showResult('eqn-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
             animateRecognition(JSON.parse(automaton), regex, 't-graph');
 
             // Handle Equations
             if (!container) {
-                showResult('regex-result', 'Missing equation container.', 'error');
+                showResult('eqn-result', 'Missing equation container.', 'error');
                 return false;
             }
 
             if(!alphabet)
             {
-                showResult('regex-result', 'Missing Alphabet for equation', 'error');
+                showResult('eqn-result', 'Missing Alphabet for equation', 'error');
                 return false;     
             }
 
@@ -285,7 +293,7 @@ function initializeFormListeners() {
                 });
 
                 if (eqn_list.length === 0 || eqn_list.some(eq => eq === "")) {
-                    showResult('regex-result', 'Please fill all equations.', 'error');
+                    showResult('eqn-result', 'Please fill all equations.', 'error');
                     return false;
                 }
 
@@ -293,16 +301,16 @@ function initializeFormListeners() {
                     regex,
                     equations: eqn_list,
                     alphabet: alphabet.value.trim()
-                }, 'regex-result');
+                }, 'eqn-result');
 
                 if (eqnResponse) {
                     addToHistory('Equation To Regex', { regex, equations: eqn_list });
-                    showResult('regex-result',
+                    showResult('eqn-result',
                         `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
                 }
 
             } catch (error) {
-                showResult('regex-result', 'Invalid equation input format.', 'error');
+                showResult('eqn-result', 'Invalid equation input format.', 'error');
             }
 
             return false;
@@ -314,8 +322,7 @@ function initializeFormListeners() {
 let operationHistory = [];
 let currentAnimationInterval = null; 
 
-
-function showTab(tabName, event) { 
+function showTab(tabName, clickedElement) { 
     const tabContents = document.querySelectorAll('.tab-content');
     tabContents.forEach(content => content.classList.remove('active'));
 
@@ -323,12 +330,21 @@ function showTab(tabName, event) {
     tabs.forEach(tab => tab.classList.remove('active'));
 
     document.getElementById(tabName + '-tab').classList.add('active');
-    if (event && event.target) { 
-        event.target.classList.add('active');
+    
+    // Trouver et activer l'onglet cliqué
+    if (clickedElement) {
+        clickedElement.classList.add('active');
+    } else {
+        // Fallback : chercher l'onglet par son contenu
+        tabs.forEach(tab => {
+            if (tab.onclick && tab.onclick.toString().includes(tabName)) {
+                tab.classList.add('active');
+            }
+        });
     }
 
     // Clear graphs when switching tabs
-    ['regex', 'transform', 'operations', 'test'].forEach(tab => {
+    ['regex', 'transform', 'operations', 'test', 'eqn'].forEach(tab => {
         const container = document.getElementById(`${tab}-graph`);
         if (container) { 
             container.innerHTML = '';
@@ -376,9 +392,10 @@ function addToHistory(operation, input, output) {
         output: typeof output === 'object' ? JSON.stringify(output, null, 2) : output
     });
 
-    if (operationHistory.length > 10) {
-        operationHistory = operationHistory.slice(0, 10);
+    if (operationHistory.length >= 10) {
+        operationHistory = operationHistory.slice(0, 9);
     }
+
     displayHistory();
 }
 
@@ -405,6 +422,44 @@ function displayHistory() {
         `;
     });
     container.innerHTML = html;
+}
+
+
+function validateEquation(equation) {
+    // Format attendu : X1=aX2+bX1 ou similaire
+    const pattern = /^X\d+\s*=\s*[a-zA-Z0-9+\(\)X\s]+$/;
+    return pattern.test(equation.trim());
+}
+
+// Fonction pour extraire les variables d'une équation
+function extractVariables(equation) {
+    const matches = equation.match(/X\d+/g);
+    return matches ? [...new Set(matches)] : [];
+}
+
+// Fonction pour valider la cohérence des variables dans toutes les équations
+function validateEquationSystem(equations) {
+    const allVariables = new Set();
+    const definedVariables = new Set();
+    
+    equations.forEach(eq => {
+        const variables = extractVariables(eq);
+        variables.forEach(v => allVariables.add(v));
+        
+        // Variable définie (côté gauche de =)
+        const leftSide = eq.split('=')[0].trim();
+        if (leftSide.match(/^X\d+$/)) {
+            definedVariables.add(leftSide);
+        }
+    });
+    
+    // Vérifier que toutes les variables utilisées sont définies
+    const undefinedVars = [...allVariables].filter(v => !definedVariables.has(v));
+    
+    return {
+        valid: undefinedVars.length === 0,
+        undefinedVariables: undefinedVars
+    };
 }
 
 
@@ -625,7 +680,9 @@ async function kleeneStar() {
     if (response) {
         addToHistory('Kleene Star', automaton, response.automaton);
         showResult('operations-result', 
-            `<h3>Kleene Star Result:</h3><pre>${JSON.stringify(response.automaton, null, 2)}</pre>`, 
+            `<button type="button" class="btn" onclick="copyToClipboardById('result1')">
+                    📋 </button>
+            <h3>Kleene Star Result:</h3><pre id="result1">${JSON.stringify(response.automaton, null, 2)}</pre>`, 
             'success'
         );
         renderGraph(response.automaton, 'operations-graph');
@@ -666,28 +723,37 @@ async function compareAutomata() {
 }
 
 
+function copyToClipboardById(elementId) {
+    const el = document.getElementById(elementId);
 
+    if (!el) {
+        alert("Element not found.");
+        return;
+    }
 
+    const text = el.innerText || el.textContent;
 
+    if (!text.trim()) {
+        alert("Nothing to copy!");
+        return;
+    }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    navigator.clipboard.writeText(text)
+        .then(() => alert("Copied to clipboard!"))
+        .catch(err => {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert("Copied to clipboard!");
+            } catch (fallbackErr) {
+                alert("Failed to copy: " + err);
+            }
+        });
+}
 
 async function getHistory() {
     try {

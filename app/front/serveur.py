@@ -9,7 +9,6 @@ import threading
 import time
 
 from .GestionnaireOperations import GestionnaireOperations
-from .RegexParser import RegexParser
 from ..Automate import Automate
 from ..Etat import Etat
 
@@ -29,7 +28,6 @@ class AutomatonServer:
         self.debug = debug
         self.auto_open_browser = auto_open_browser
         self.gestionnaire = GestionnaireOperations()
-        self.regex_parser = RegexParser()
         self.server_thread = None
         self._setup_routes()
         self._setup_error_handlers()
@@ -63,11 +61,12 @@ class AutomatonServer:
                     return jsonify({'error': 'Missing regex parameter'}), 400
                 
                 regex = data['regex']
+                method = data['method']
                 if not regex.strip():
                     return jsonify({'error': 'Empty regex provided'}), 400
                 
                 logger.info(f"Converting regex: {regex}")
-                automate = self.regex_parser.parser_regex(regex)
+                automate = self.gestionnaire.regex_vers_automate(regex, method)
                 result = self._automate_to_dict(automate)
                 
                 return jsonify({
@@ -95,7 +94,7 @@ class AutomatonServer:
                         'message': 'Empty regex provided'
                     })
                 
-                is_valid, message = self.regex_parser.valider_syntaxe(regex)
+                is_valid, message = self.gestionnaire.valider_syntaxe(regex)
                 return jsonify({
                     'valid': is_valid,
                     'message': message
@@ -103,12 +102,50 @@ class AutomatonServer:
             except Exception as e:
                 logger.error(f"Error validating regex: {str(e)}")
                 return jsonify({'error': f'Regex validation failed: {str(e)}'}), 500
+            
+        @self.app.route('/api/automaton/a2regex', methods=['POST'])          
+        @self.app.route('/api/a2regex', methods=['POST'])
+        def a2regex():
+            """From automaton to regex using Arden Lemma"""
+            try:
+                data = request.get_json()
+                if not data or 'automaton' not in data:
+                    # Support legacy format
+                    if 'automate' in data:
+                        data['automaton'] = data['automate']
+                    else:
+                        return jsonify({'error': 'Missing automaton or operation parameter'}), 400
+                
+                # Handle legacy JSON string format
+                automaton_data = data['automaton']
+                if isinstance(automaton_data, str):
+                    automaton_data = json.loads(automaton_data)
+                
+                if not self._validate_automaton_structure(automaton_data):
+                    return jsonify({'error': 'Invalid automaton structure'}), 400
+                
+                automate = self._dict_to_automate(automaton_data)
+                
+                logger.info(f"Solving Automaton")
+                
+                result = self.gestionnaire.automaton2eqn(automate)
+                return jsonify({
+                    'success': True,
+                    'regex': result,
+                    'message': f'Operation completed successfully'
+                })
+            except Exception as e:
+                logger.error(f"Error transforming automaton: {str(e)}")
+                logger.error(traceback.format_exc())
+                return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
+
+
+
 
         @self.app.route('/api/automaton/eqn2regex', methods=['POST'])
         @self.app.route('/api/eqn2regex', methods=['POST'])  # Legacy endpoint
         def eqn2regex():
             """From equations to regex using Arden Lemma"""
-
             try:
                 data = request.get_json()
                 if not data or 'equations' not in data:
@@ -119,16 +156,22 @@ class AutomatonServer:
                         return jsonify({'error': 'Missing equation or operation parameter'}), 400
                 
                 equations = data['equations']
+                alphabet = data['alphabet']
+
+                equations = dict(equations)
                 
-                if not self._validate_equations(equations):
+                if not self.gestionnaire.validate_equations(equations):
                     return jsonify({'error': 'Invalid equations format structure'}), 400
                 
-                self.gestionnaire.automaton2reg(equations)
-                
+                result = self.gestionnaire.eqn2reg(equations, alphabet)
                 logger.info(f"Solving Equations")
                 
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error solving eqn systeme: {str(e)}")
+                logger.error(traceback.format_exc())
+                return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
+
+
 
         # Single automaton operations
         @self.app.route('/api/automaton/transform', methods=['POST'])
@@ -284,6 +327,7 @@ class AutomatonServer:
                 
                 accepted = self.gestionnaire.tester_mot(automate, word)
                 
+                print("est sorti ??")
                 return jsonify({
                     'success': True,
                     'accepted': accepted,
@@ -664,12 +708,16 @@ class AutomatonServer:
             etats_finaux=etats_finaux
         )
         
-        # Add transitions
-        for transition in data['transitions']:
-            source = next(e for e in etats if str(e) == transition['source'])
-            dest = next(e for e in etats if str(e) == transition['destination'])
-            symbol = transition.get('symbol', transition.get('symbole', ''))
-            automate.ajouter_transition(source, symbol, dest)
+        try:
+            # Add transitions
+            for transition in data['transitions']:
+                source = next(e for e in etats if str(e) == transition['source'])
+                dest = next(e for e in etats if str(e) == transition['destination'])
+                symbol = transition.get('symbol', transition.get('symbole', ''))
+                automate.ajouter_transition(source, symbol, dest)
+        except Exception as e:
+            logger.error(f"Error Converting dict to automaton: {str(e)}")
+            return jsonify({'error': f'Failed Converting dict to automaton: {str(e)}'}), 500
         
         return automate
 
@@ -699,6 +747,10 @@ class AutomatonServer:
             "/api/tester": "Legacy: Test word acceptance",
             "/api/automaton/compare": "Compare automata equivalence",
             "/api/automaton/trace": "Trace word recognition",
+            
+            # Automaton to regex
+            "/api/automaton/a2regex": "From Automaton to regex",
+            "/api/automaton/eqn2regex": "From Eqn 2 regex" ,
             
             # Utility
             "/api/automaton/export": "Export automaton in various formats",
@@ -753,6 +805,13 @@ class AutomatonServer:
         # this would need to be implemented with werkzeug
         logger.info("Server stop requested")
 
+
+
+
+
+
+
+
 def create_app():
     """Factory function to create Flask app"""
     server = AutomatonServer()
@@ -777,6 +836,8 @@ def main():
     print("  • POST /api/regex/convert - Convert regex to automaton")
     print("  • POST /api/regex/validate - Validate regex syntax")
     print("  • POST /api/automaton/transform - Transform automaton")
+    print("  • POST /api/automaton/a2regex - From Automaton to regex")
+    print("  • POST /api/automaton/eqn2regex - From Eqn 2 regex")
     print("  • POST /api/automaton/union - Union of two automata")
     print("  • POST /api/automaton/intersection - Intersection of two automata")
     print("  • POST /api/automaton/concatenation - Concatenation of two automata")

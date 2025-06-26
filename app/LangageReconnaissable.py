@@ -2,9 +2,9 @@ import re
 from typing import Set, Dict, List, Tuple, Optional, Union, Any
 from collections import deque
 
-from Mot import Mot
+from .Mot import Mot
 from .Langage import Langage
-from .Automate import Automate, ADC, AFDC, AND, AFND, AFNS, AutomateCanonique
+from .Automate import Automate, ADC, AFDC, AND, AFND, AFNS, AutomateMinimal
 from .Etat import Etat
 
 
@@ -30,7 +30,7 @@ class LangageReconnaissable(Langage):
             self.alphabet = automate.alphabet
             self.mots = self._generer_mots_depuis_automate(longueur_max=100)
         elif mots is not None and alphabet is not None:
-            self.automate = AutomateCanonique(self)
+            self.automate = AutomateMinimal(self)
 
     def _generer_mots_depuis_automate(self, longueur_max: int) -> Set[Mot]:
         """Génère les mots acceptés par l'automate jusqu'à une longueur maximale."""
@@ -441,17 +441,24 @@ class LangageReconnaissable(Langage):
         
         return resolvables, non_resolvables
     
-    
+
+    @classmethod
+    def lemmes_arden (cls, systeme: List[Tuple[str, str]], 
+                              alphabet: Set[str], 
+                              variables: Set[str], max_iter: int = 50) -> Tuple[Optional[Dict[str, str]], 
+                                                          Optional[List[Tuple[str, str]]], 
+                                                          Optional[str]]:
+            return cls.appliquer_lemmes_arden(systeme, alphabet, variables, max_iter)
 
     def appliquer_lemmes_arden(self, systeme: List[Tuple[str, str]], 
                               alphabet: Set[str], 
-                              variables: Set[str]) -> Tuple[Optional[Dict[str, str]], 
+                              variables: Set[str], max_iter: int = 50) -> Tuple[Optional[Dict[str, str]], 
                                                           Optional[List[Tuple[str, str]]], 
                                                           Optional[str]]:
         """Résout le système d'équations en appliquant les lemmes d'Arden."""
         solutions = {}
         systeme_courant = systeme.copy()
-        max_iterations = 50
+        max_iterations = max_iter
         
         for iteration in range(max_iterations):
             try:

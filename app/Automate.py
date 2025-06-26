@@ -1,4 +1,5 @@
 from abc import ABC
+from copy import copy
 from typing import Set, Dict, List, Optional
 from .Etat import Etat
 from .Langage import Langage
@@ -188,7 +189,7 @@ class Automate(ABC):
         
         return automate_final
 
-    @staticmethod
+    
     def _inverser(self) -> 'AFND':
         """Inverse l'automate (inverse les transitions et échange initial/finaux)."""
         # Créer un nouvel état initial unique
@@ -229,7 +230,7 @@ class Automate(ABC):
         automate_inverse.transitions = nouvelles_transitions
         return automate_inverse
 
-    @staticmethod
+    
     def _determiniser_construction_sous_ensembles(self) -> 'AD':
         """Construction par sous-ensembles standard."""
         from collections import deque
@@ -304,146 +305,6 @@ class Automate(ABC):
         
         return automate_det
 
-    def construire_automate_glushkov(self, regex: str) -> 'AD':
-        """
-        Construction d'automate par la méthode de Glushkov.
-        Produit directement un automate déterministe sans ε-transitions.
-        """
-        # Étape 1: Analyser l'expression régulière
-        regex_augmentee = self._augmenter_regex(regex)
-        positions = self._calculer_positions(regex_augmentee)
-        
-        # Étape 2: Calculer les fonctions First, Last, Follow
-        first_pos = self._calculer_first(regex_augmentee, positions)
-        last_pos = self._calculer_last(regex_augmentee, positions)
-        follow_pos = self._calculer_follow(regex_augmentee, positions)
-        
-        # Étape 3: Construire l'automate
-        # État initial
-        etat_initial = Etat("q0")
-        etats = {etat_initial}
-        
-        # Créer un état pour chaque position
-        pos_vers_etat = {}
-        for pos in positions:
-            etat = Etat(f"q{pos}")
-            etats.add(etat)
-            pos_vers_etat[pos] = etat
-        
-        # Alphabet
-        alphabet = set()
-        for pos, symbole in positions.items():
-            if symbole != '#':  # Marqueur de fin
-                alphabet.add(symbole)
-        
-        # Transitions depuis l'état initial
-        transitions = {}
-        transitions[etat_initial] = {}
-        
-        for symbole in alphabet:
-            destinations = set()
-            for pos in first_pos:
-                if positions[pos] == symbole:
-                    destinations.add(pos_vers_etat[pos])
-            if destinations:
-                transitions[etat_initial][symbole] = destinations
-        
-        # Transitions entre états
-        for pos in positions:
-            if positions[pos] == '#':  # Position finale
-                continue
-                
-            etat_source = pos_vers_etat[pos]
-            transitions[etat_source] = {}
-            
-            for symbole in alphabet:
-                destinations = set()
-                for pos_suiv in follow_pos.get(pos, set()):
-                    if positions[pos_suiv] == symbole:
-                        destinations.add(pos_vers_etat[pos_suiv])
-                if destinations:
-                    transitions[etat_source][symbole] = destinations
-        
-        # États finaux : ceux correspondant aux positions dans Last
-        etats_finaux = set()
-        for pos in last_pos:
-            if positions[pos] == '#':
-                etats_finaux.add(etat_initial)  # Si regex accepte mot vide
-            else:
-                etats_finaux.add(pos_vers_etat[pos])
-        
-        # Créer l'automate
-        automate = AD(
-            alphabet=alphabet,
-            etats=etats,
-            etat_initial=etat_initial,
-            etats_finaux=etats_finaux
-        )
-        automate.transitions = transitions
-        
-        return automate
-
-    @staticmethod
-    def _augmenter_regex(regex: str) -> str:
-        """Ajoute un marqueur de fin unique à la regex."""
-        return f"({regex})#"
-
-    @staticmethod
-    def _calculer_positions(regex: str) -> dict:
-        """Calcule les positions des symboles dans la regex."""
-        positions = {}
-        compteur = 1
-        
-        for char in regex:
-            if char.isalnum() or char == '#':
-                positions[compteur] = char
-                compteur += 1
-        
-        return positions
-
-    @staticmethod
-    def _calculer_first(regex: str, positions: dict) -> set:
-        """Calcule l'ensemble First de la regex."""
-        # Implémentation simplifiée pour les cas de base
-        first = set()
-        
-        # Pour une implémentation complète, il faudrait parser l'AST de la regex
-        # Ici, version simplifiée : premier symbole trouvé
-        for pos, symbole in positions.items():
-            if symbole != '#':
-                first.add(pos)
-                break
-        
-        return first
-
-    @staticmethod
-    def _calculer_last(regex: str, positions: dict) -> set:
-        """Calcule l'ensemble Last de la regex."""
-        # Implémentation simplifiée
-        last = set()
-        
-        # Ajouter la position du marqueur de fin
-        for pos, symbole in positions.items():
-            if symbole == '#':
-                last.add(pos)
-        
-        return last
-
-    @staticmethod
-    def _calculer_follow(regex: str, positions: dict) -> dict:
-        """Calcule l'ensemble Follow pour chaque position."""
-        # Implémentation simplifiée
-        follow = {}
-        
-        # Pour une implémentation complète, il faudrait analyser
-        # les opérateurs de concaténation, union, étoile
-        pos_list = list(positions.keys())
-        
-        for i, pos in enumerate(pos_list[:-1]):
-            follow[pos] = {pos_list[i + 1]}
-        
-        return follow
-
     def automate_a_matrice(self):
         """Conversion temporaire pour algorithmes matriciels"""
         etats_list = list(self.etats)
@@ -488,12 +349,12 @@ class Automate(ABC):
     
     def reconnaitre_mot(self, mot: str) -> bool:
         """Détermine si un mot est reconnu par l'automate."""
-        return self._reconnaitre_recursif(mot, self.etat_initial)
+        res = self._reconnaitre_recursif(mot, self.etat_initial)
+        return res
 
-    @staticmethod
+    
     def _reconnaitre_recursif(self, mot: str, etat_courant: Etat):
         """Fonction récursive pour la reconnaissance de mots."""
-
         if not mot:
             return etat_courant.est_final
     
@@ -594,16 +455,54 @@ class Automate(ABC):
                         destination = next(e for e in etats if e.nom == f"q{dest_idx}")
                         self.ajouter_transition(source, symbole, destination)
     
+    def copy(self):
+        from copy import deepcopy
+        new_automate = Automate(
+            alphabet=self.alphabet.copy(),
+            etats_finaux=set(copy(etat) for etat in self.etats_finaux),
+            etats=set(copy(etat) for etat in self.etats),
+            etat_initial=copy(self.etat_initial)
+        )
+        new_automate.transitions = {
+            copy(src): {
+                sym: set(copy(dst) for dst in dests)
+                for sym, dests in sym_dict.items()
+            }
+            for src, sym_dict in self.transitions.items()
+        }
+        return new_automate
+
+
 
 class AD(Automate):
     """Automate Déterministe."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        super().__init__(alphabet, etats_finaux, etats, etat_initial)
-        if not self.est_deterministe():
-            raise ValueError("L'automate doit être déterministe")
-    
+    def __init__(self,
+                 alphabet: Optional[Set[str]] = None,
+                 etats: Optional[Set[Etat]] = None,
+                 etat_initial: Optional[Etat] = None,
+                 etats_finaux: Optional[Set[Etat]] = None,
+                 autre: Optional['AD'] = None):
+        if autre:
+            super().__init__(
+                alphabet=autre.alphabet.copy(),
+                etats=copy(autre.etats),
+                etat_initial=copy(autre.etat_initial),
+                etats_finaux=copy(autre.etats_finaux)
+            )
+            self.transitions = {
+                copy(src): {sym: set(copy(dst) for dst in dests)
+                            for sym, dests in dico.items()}
+                for src, dico in autre.transitions.items()
+            }
+        else:
+            super().__init__(alphabet, etats_finaux, etats, etat_initial)
+            if not self.est_deterministe():
+                raise ValueError("L'automate doit être déterministe")
+
+    def copy(self) -> 'AD':
+        return AD(autre=self)
+
     def ajouter_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
         """Ajoute une transition en respectant le déterminisme."""
         if etat_source in self.transitions and symbole in self.transitions[etat_source]:
@@ -614,25 +513,7 @@ class AD(Automate):
     def est_deterministe(self) -> bool:
         """Retourne toujours True pour un AD."""
         return True
-    
 
-class ADC(AD):
-    """Automate Déterministe Complet."""
-    
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
-        self.completer()
-    
-    def supprimer_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
-        """Supprime une transition en maintenant la complétude."""
-        super().supprimer_transition(etat_source, symbole, etat_cible)
-        self.completer()
-    
-    def est_complet(self) -> bool:
-        """Retourne toujours True pour un ADC."""
-        return True
-    
     def completer(self) -> None:
         """Complète l'automate."""
         if super().est_complet():
@@ -646,15 +527,44 @@ class ADC(AD):
                 if not super().obtenir_transitions(etat, symbole):
                     super().ajouter_transition(etat, symbole, etat_puits)
 
+    
+
+class ADC(AD):
+    """Automate Déterministe Complet."""
+    
+    def __init__(self, alphabet=None, etats=None, etat_initial=None, etats_finaux=None, autre: Optional['ADC'] = None):
+        if autre:
+            super().__init__(autre=autre)
+        else:
+            super().__init__(alphabet, etats, etat_initial, etats_finaux)
+        self.completer()
+
+    def copy(self): return ADC(autre=self)
+
+    
+    def supprimer_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
+        """Supprime une transition en maintenant la complétude."""
+        super().supprimer_transition(etat_source, symbole, etat_cible)
+        self.completer()
+    
+    def est_complet(self) -> bool:
+        """Retourne toujours True pour un ADC."""
+        return True
+
+
 class AFDC(ADC):
     """Automate Fini Déterministe Complet."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un AFDC."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
+    def __init__(self, alphabet=None, etats=None, etat_initial=None, etats_finaux=None, autre: Optional['AFDC'] = None):
+        if autre:
+            super().__init__(autre=autre)
+        else:
+            super().__init__(alphabet, etats, etat_initial, etats_finaux)
         if not self.est_fini():
             raise ValueError("L'automate doit être fini")
+
+    def copy(self): return AFDC(autre=self)
+
     
     def est_fini(self) -> bool:
         """Vérifie que l'automate est fini."""
@@ -763,7 +673,6 @@ class AFDC(ADC):
         classes = self._calculer_classes_equivalence()
         return self._construire_automate_minimal(classes)
     
-    @staticmethod
     def _calculer_classes_equivalence(self) -> List[Set[Etat]]:
         """Calcule les classes d'équivalence pour la minimisation."""
         # Partition initiale : états finaux vs non-finaux
@@ -792,7 +701,7 @@ class AFDC(ADC):
         
         return partition
 
-    @staticmethod
+    
     def _raffiner_classe(self, classe: Set[Etat], partition: List[Set[Etat]]) -> List[Set[Etat]]:
         """Raffine une classe d'équivalence."""
         if len(classe) <= 1:
@@ -822,7 +731,7 @@ class AFDC(ADC):
         
         return list(sous_classes.values())
 
-    @staticmethod
+    
     def _construire_automate_minimal(self, classes: List[Set[Etat]]) -> 'AFDC':
         """Construit l'automate minimal à partir des classes d'équivalence."""
         # Créer les nouveaux états
@@ -885,17 +794,44 @@ class AFDC(ADC):
     def afficher(self) -> str:
         return "[ADC] " + super().afficher()
 
+    def copy(self):
+        afdc_copy = AFDC(
+            alphabet=self.alphabet.copy(),
+            etats=set(copy(e) for e in self.etats),
+            etat_initial=copy(self.etat_initial),
+            etats_finaux=set(copy(e) for e in self.etats_finaux)
+        )
+        afdc_copy.transitions = {
+            copy(src): {sym: set(copy(dst) for dst in dests)
+                        for sym, dests in dico.items()}
+            for src, dico in self.transitions.items()
+        }
+        return afdc_copy
+
 
 
 
 class AND(Automate):
     """Automate Non Déterministe."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un AND."""
-        super().__init__(alphabet, etats_finaux, etats, etat_initial)
-    
+    def __init__(self, alphabet=None, etats=None, etat_initial=None, etats_finaux=None, autre: Optional['AND'] = None):
+        if autre:
+            super().__init__(
+                alphabet=autre.alphabet.copy(),
+                etats=copy(autre.etats),
+                etat_initial=copy(autre.etat_initial),
+                etats_finaux=copy(autre.etats_finaux)
+            )
+            self.transitions = {
+                copy(src): {sym: set(copy(dst) for dst in dests)
+                            for sym, dests in dico.items()}
+                for src, dico in autre.transitions.items()
+            }
+        else:
+            super().__init__(alphabet, etats_finaux, etats, etat_initial)
+
+    def copy(self): return AND(autre=self)
+
     def ajouter_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
         """Ajoute une transition non déterministe."""
         super().ajouter_transition(etat_source, symbole, etat_cible)
@@ -930,15 +866,21 @@ class AND(Automate):
         return f"AND:\n{super().afficher()}"
 
 
+
+
 class AFND(AND):
     """Automate Fini Non Déterministe."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un AFND."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
+    def __init__(self, alphabet=None, etats=None, etat_initial=None, etats_finaux=None, autre: Optional['AFND'] = None):
+        if autre:
+            super().__init__(autre=autre)
+        else:
+            super().__init__(alphabet, etats, etat_initial, etats_finaux)
         if not self.est_fini():
             raise ValueError("L'automate doit être fini")
+
+    def copy(self): return AFND(autre=self)
+
     
     def est_fini(self) -> bool:
         """Vérifie que l'automate est fini."""
@@ -949,17 +891,20 @@ class AFND(AND):
         adc = self.determiniser()
         # Convertir ADC en AFDC
         return AFDC(adc.alphabet, adc.etats, adc.etat_initial, adc.etats_finaux)
-    
-   
+
 
 class AFNS(AFND):
     """Automate Fini à Transitions Spontanées (ε-transitions)."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un AFNS."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
-        self.epsilon = ""  # Représentation d'epsilon
+    def __init__(self, alphabet=None, etats=None, etat_initial=None, etats_finaux=None, autre: Optional['AFNS'] = None):
+        if autre:
+            super().__init__(autre=autre)
+        else:
+            super().__init__(alphabet, etats, etat_initial, etats_finaux)
+        self.epsilon = ""
+
+    def copy(self): return AFNS(autre=self)
+
     
     def ajouter_transition_epsilon(self, etat_source: Etat, etat_cible: Etat) -> None:
         """Ajoute une ε-transition."""
@@ -1117,6 +1062,20 @@ class AFNS(AFND):
         
         return afnd
     
+    def copy(self):
+        afns_copy = AFNS(
+            alphabet=self.alphabet.copy(),
+            etats=set(copy(e) for e in self.etats),
+            etat_initial=copy(self.etat_initial),
+            etats_finaux=set(copy(e) for e in self.etats_finaux)
+        )
+        afns_copy.epsilon = self.epsilon
+        afns_copy.transitions = {
+            copy(src): {sym: set(copy(dst) for dst in dests)
+                        for sym, dests in dico.items()}
+            for src, dico in self.transitions.items()
+        }
+        return afns_copy
 
 
 class MinimisateurAutomate:
@@ -1131,7 +1090,7 @@ class MinimisateurAutomate:
         etats_equivalents = self._calculer_etats_equivalents()
         return self._construire_automate_minimal(etats_equivalents)
     
-    @staticmethod
+    
     def _calculer_etats_equivalents(self) -> Dict[Etat, Set[Etat]]:
         """Calcule les classes d'états équivalents par l'algorithme de Moore."""
         etats = list(self.automate.etats)
@@ -1190,7 +1149,7 @@ class MinimisateurAutomate:
         
         return classes
     
-    @staticmethod
+    
     def _obtenir_destination(self, etat: Etat, symbole: str) -> Optional[Etat]:
         """Obtient l'état de destination pour une transition donnée."""
         for source, sym, dest in self.automate.transitions:
@@ -1198,7 +1157,7 @@ class MinimisateurAutomate:
                 return dest
         return None
     
-    @staticmethod
+    
     def _construire_automate_minimal(self, classes_etats: Dict[Etat, Set[Etat]]) -> 'AutomateMinimal':
         """Construit l'automate minimal à partir des classes d'états."""
         # Créer les nouveaux états
@@ -1265,7 +1224,7 @@ class AutomateMinimal(AFDC):
         """Vérifie si l'automate est minimal."""
         return self._aucun_etat_equivalent()
     
-    @staticmethod
+    
     def _aucun_etat_equivalent(self) -> bool:
         """Vérifie qu'aucun état n'est équivalent à un autre."""
         if not isinstance(self.etats, set) or len(self.etats) <= 1:
@@ -1281,7 +1240,7 @@ class AutomateMinimal(AFDC):
                     return False
         return True
     
-    @staticmethod
+    
     def _etats_equivalents(self, etat1: Etat, etat2: Etat) -> bool:
         """Vérifie si deux états sont équivalents."""
         # États équivalents si même finalité et même comportement
@@ -1303,7 +1262,7 @@ class AutomateMinimal(AFDC):
         
         return True
     
-    @staticmethod
+    
     def _obtenir_destination(self, etat: Etat, symbole: str) -> Optional[Etat]:
         """Obtient l'état de destination pour une transition donnée."""
         for source, sym, dest in self.transitions:
@@ -1321,100 +1280,5 @@ class AutomateMinimal(AFDC):
             return 0.0
         return self.nombre_etats_reduits() / len(self.automate_source.etats)
 
-
-
-
-
-
-# =============================================
-# DÉMONSTRATION D'UTILISATION
-# =============================================
-
-if __name__ == "__main__":
-    print("=== DÉMONSTRATION DE LA CLASSE AUTOMATE ===\n")
-    
-    # Création des états
-    q0 = Etat("q0", est_initial=True)
-    q1 = Etat("q1", est_final=True) 
-    q2 = Etat("q2")
-    
-    # Exemple 1: Automate simple qui accepte les mots finissant par 'a'
-    print("1. Automate acceptant les mots finissant par 'a'")
-    automate1 = Automate(
-        alphabet={'a', 'b'},
-        etats={q0, q1},
-        etat_initial=q0,
-        etats_finaux={q1}
-    )
-    
-    # Ajout des transitions
-    automate1.ajouter_transition(q0, 'a', q1)  # q0 --a--> q1
-    automate1.ajouter_transition(q0, 'b', q0)  # q0 --b--> q0  
-    automate1.ajouter_transition(q1, 'a', q1)  # q1 --a--> q1
-    automate1.ajouter_transition(q1, 'b', q0)  # q1 --b--> q0
-    
-    print(automate1.afficher())
-    print(f"Déterministe: {automate1.est_deterministe()}")
-    print(f"Complet: {automate1.est_complet()}")
-    
-    # Test de reconnaissance
-    mots_test = ["a", "ba", "bba", "ab", "bb", ""]
-    for mot in mots_test:
-        resultat = automate1.reconnaitre_mot(mot)
-        print(f"Mot '{mot}': {'✓' if resultat else '✗'}")
-    
-    print("\n" + "="*50 + "\n")
-    
-    # Exemple 2: Automate non-déterministe
-    print("2. Automate non-déterministe (deux transitions pour 'a' depuis q0)")
-    automate2 = Automate(
-        alphabet={'a', 'b'},
-        etats={q0, q1, q2},
-        etat_initial=q0,
-        etats_finaux={q2}
-    )
-    
-    # Transitions non-déterministes
-    automate2.ajouter_transition(q0, 'a', q1)  # q0 --a--> q1
-    automate2.ajouter_transition(q0, 'a', q2)  # q0 --a--> q2 (non-déterministe!)
-    automate2.ajouter_transition(q1, 'b', q2)  # q1 --b--> q2
-    
-    print(automate2.afficher())
-    print(f"Déterministe: {automate2.est_deterministe()}")
-    print(f"Complet: {automate2.est_complet()}")
-    
-    # Test de reconnaissance
-    mots_test2 = ["a", "ab", "b", "aa"]
-    for mot in mots_test2:
-        resultat = automate2.reconnaitre_mot(mot)
-        print(f"Mot '{mot}': {'✓' if resultat else '✗'}")
-    
-    print("\n" + "="*50 + "\n")
-    
-    # Exemple 3: Conversion en matrice
-    print("3. Conversion automate → matrice")
-    matrice, etats_list, alphabet_list = automate1.automate_a_matrice()
-    
-    print(f"États: {[str(e) for e in etats_list]}")
-    print(f"Alphabet: {alphabet_list}")
-    print("Matrice de transitions:")
-    for i, etat in enumerate(etats_list):
-        for j, symbole in enumerate(alphabet_list):
-            destinations = matrice[i][j]
-            if destinations:
-                dest_noms = [str(etats_list[k]) for k in destinations]
-                print(f"  {etat} --{symbole}--> {dest_noms}")
-    
-    print("\n" + "="*50 + "\n")
-    
-    # Exemple 4: Manipulation des transitions
-    print("4. Suppression de transitions")
-    print("Avant suppression:")
-    print(automate1.afficher())
-    
-    # Supprimer une transition
-    automate1.supprimer_transition(q1, 'b', q0)
-    print("\nAprès suppression de q1 --b--> q0:")
-    print(automate1.afficher())
-    print(f"Complet après suppression: {automate1.est_complet()}")
-
+    def copy(self):
+        return AutomateMinimal(self.automate_source.copy())

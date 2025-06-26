@@ -16,11 +16,11 @@
         </div>
 
         <div class="tabs">
-            <div class="tab active" onclick="showTab('regex')">Regex Conversion</div>
-            <div class="tab" onclick="showTab('transform')">Transformations</div>
-            <div class="tab" onclick="showTab('operations')">Operations</div>
-            <div class="tab" onclick="showTab('test')">Word Testing</div>
-            <div class="tab" onclick="showTab('eqn')">Equations</div>
+            <div class="tab active" onclick="showTab('regex', this)">Regex Conversion</div>
+            <div class="tab" onclick="showTab('transform', this)">Transformations</div>
+            <div class="tab" onclick="showTab('operations', this)">Operations</div>
+            <div class="tab" onclick="showTab('test', this)">Word Testing</div>
+            <div class="tab" onclick="showTab('eqn', this)">Equations</div>
         </div>
 
         <!-- Regex Conversion Tab -->
@@ -33,7 +33,10 @@
                             <label for="regex-input">Regular Expression:</label>
                             <input type="text" id="regex-input" placeholder="e.g., (a|b)*" required>
                         </div>
-                        <button type="submit" class="btn">Convert</button>
+                        
+                        <button type="submit" id="thompson" class="btn">Thompson</button>
+                        <button type="submit" id="glushkov" class="btn">Glushkov</button>
+
                         <button type="button" class="btn btn-secondary" onclick="validateRegex()">Validate</button>
                     </form>
                     <div id="regex-result"></div>
@@ -155,24 +158,28 @@
                     <form id="eqn-form">
                         <div class="form-group">
                             <label for="eqn-automaton-input">Automaton (JSON):</label>
-                            <textarea id="eqn-automaton-input" rows="6" required></textarea>
-                            <button type="submit" class="btn">Solve</button>
+                            <textarea id="eqn-automaton-input" rows="6"></textarea>
                         </div>
 
                         <div class="form-group" id="equation-fields">
                             <label for="eqn-input-1">Equation to solve:</label>
-                            <input type="text" id="eqn-input-1" placeholder="e.g., X1=aX2+bX1" required>
-                            <input type="text" id="eqn-input-2" placeholder="e.g., X2=bX1+a" required>
+                            <input type="text" id="eqn-input-1" placeholder="e.g., X1=aX2+bX1">
+                            <input type="text" id="eqn-input-2" placeholder="e.g., X2=bX1+a">
                         </div>
-                        <label for="alphabet">Alphabet: </label>
-                        <input type="text" id="alphabet" class="alphabet-zone" placeholder="a,b,c" required>
-                        
-                        <button type="button" id="add-eqn" class="btn">Add Equation</button>
-                        <button type="button" id="rm-eqn" class="btn">Remove Equation</button>
-                        
+
+                        <div class="form-group">
+                            <label for="alphabet">Alphabet: </label>
+                            <input type="text" id="alphabet" class="alphabet-zone" placeholder="a,b,c">
+                        </div>
+
+                        <div class="form-group">
+                            <button type="button" id="add-eqn" class="btn">Add Equation</button>
+                            <button type="button" id="rm-eqn" class="btn">Remove Equation</button>
+                        </div>
+
                         <button type="submit" class="btn">Solve</button>
                     </form>
-                    <div id="regex-result"></div>
+                    <div id="eqn-result"></div>
                 </div>
                 <div class="card">
                     <h2>Automaton Graph</h2>
