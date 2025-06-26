@@ -1,5 +1,4 @@
 from typing import Tuple, Dict, Set, List
-import uuid
 import copy
 from ..Automate import Automate, AFNS, AD
 from ..Etat import Etat
@@ -35,24 +34,35 @@ class OptionalNode(RegexNode):
         self.child = child
 
 
-
 class RegexParser:
     """
     Parseur d'expressions régulières utilisant l'algorithme de Thompson
     """
     
     def __init__(self):
-            """Initialise le parseur"""
-            self.position = 0
-            self.expression = ""
+        """Initialise le parseur"""
+        self.position = 0
+        self.expression = ""
+        self.compteur_etats = 0  # Compteur global pour les noms d'états
+        
+    def _generer_nom_etat(self, prefix: str = "q") -> str:
+        """Génère un nom d'état unique et simple"""
+        nom = f"{prefix}{self.compteur_etats}"
+        self.compteur_etats += 1
+        return nom
+    
+    def _reinitialiser_compteur(self):
+        """Remet le compteur d'états à zéro"""
+        self.compteur_etats = 0
         
     def parser_regex(self, expression: str) -> 'AFNS':
         """Parse une regex et retourne l'automate équivalent"""
         self.expression = expression
         self.position = 0
+        self._reinitialiser_compteur()  # Réinitialiser pour chaque nouvelle regex
         
         # Validation de la syntaxe
-        est_valide, message = self.valider_syntaxe(expression)
+        est_valide, message = RegexParser.valider_syntaxe(expression)
         if not est_valide:
             raise ValueError(f"Syntaxe invalide: {message}")
         
@@ -72,6 +82,7 @@ class RegexParser:
         # Étape 1: Construire l'AST de la regex
         parser.expression = regex
         parser.position = 0
+        parser._reinitialiser_compteur()
         
         # Validation
         est_valide, message = parser.valider_syntaxe(regex)
@@ -90,17 +101,19 @@ class RegexParser:
         follow_pos = cls._calculer_follow(ast, positions)
         nullable = cls._calculer_nullable(ast)
         
-        # Étape 3: Construire l'automate
+        # Étape 3: Construire l'automate avec des noms simples
         etat_initial = Etat("q0")
         etats = {etat_initial}
         
         # Créer un état pour chaque position
         pos_vers_etat = {}
+        compteur_etat = 1
         for pos in positions:
             if positions[pos] != '#':  # Exclure le marqueur de fin
-                etat = Etat(f"q{pos}")
+                etat = Etat(f"q{compteur_etat}")
                 etats.add(etat)
                 pos_vers_etat[pos] = etat
+                compteur_etat += 1
         
         # Construire les transitions
         transitions = {}
@@ -509,36 +522,15 @@ class RegexParser:
             parser = cls()
             automate = parser.parser_regex(expression)
             
-            # Normaliser les noms d'états pour une sortie plus propre
-            parser._normaliser_noms_etats(automate)
-            
             return automate
             
         except ValueError as e:
             raise ValueError(f"Erreur lors de la construction de l'automate Thompson: {e}")
         except Exception as e:
             raise ValueError(f"Erreur inattendue lors du parsing: {e}")
-
-    def _normaliser_noms_etats(self, automate: 'AFNS') -> None:
-        """
-        Normalise les noms des états pour une présentation plus claire.
-        Remplace les UUIDs par des noms séquentiels (q0, q1, q2, ...).
-        
-        Args:
-            automate (AFNS): Automate à normaliser
-        """
-        # Créer un mapping des anciens noms vers les nouveaux
-        etats_ordonnes = list(automate.etats)
-        # Commencer par l'état initial
-        if automate.etat_initial in etats_ordonnes:
-            etats_ordonnes.remove(automate.etat_initial)
-            etats_ordonnes.insert(0, automate.etat_initial)
-        
-        # Renommer les états
-        for i, etat in enumerate(etats_ordonnes):
-            etat.nom = f"q{i}"
     
-    def valider_syntaxe(self, expression: str) -> Tuple[bool, str]:
+    @classmethod
+    def valider_syntaxe(cls, expression: str) -> Tuple[bool, str]:
         """Valide la syntaxe d'une regex"""
         if not expression:
             return False, "Expression vide"
@@ -640,11 +632,313 @@ class RegexParser:
         else:
             self.position += 1
             return self.construire_automate_base(char)
+    def construire_concatenation(self, auto1: 'AFNS', auto2: 'AFNS') -> 'AFNS':
+        auto1_copy = self._copier_automate(auto1)
+        auto2_copy = self._copier_automate(auto2)
+
+        # Fusion des alphabets et états
+        alphabet = auto1_copy.alphabet | auto2_copy.alphabet
+        etats = set()
+        etats.update(auto1_copy.etats)
+        etats.update(auto2_copy.etats)
+
+        # Les anciens états finaux de auto1 ne sont plus finaux
+        for etat in auto1_copy.etats_finaux:
+            etat.est_final = False
+
+        # Construction de l'automate
+        automate = AFNS(
+            alphabet=alphabet,
+            etats=etats,
+            etat_initial=auto1_copy.etat_initial,
+            etats_finaux=auto2_copy.etats_finaux
+        )
+
+        # Copier les transitions
+        for source, trans in list(auto1_copy.transitions.items()) + list(auto2_copy.transitions.items()):
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    automate.ajouter_transition(source, symbole, dest)
+
+        # Ajouter les ε-transitions des états finaux de auto1 vers l'état initial de auto2
+        for etat_final in auto1_copy.etats_finaux:
+            automate.ajouter_transition_epsilon(etat_final, auto2_copy.etat_initial)
+
+        return automate
     
+    def construire_etoile(self, automate: 'AFNS') -> 'AFNS':
+        """Construit l'automate pour l'opération étoile (*)"""
+        auto_copy = self._copier_automate(automate)
+        
+        nouvel_initial = Etat(self._generer_nom_etat())
+        nouvel_final = Etat(self._generer_nom_etat(), est_final=True)
+        
+        # Fusion des alphabets et états
+        alphabet = auto_copy.alphabet
+        etats = set()
+        etats.add(nouvel_initial)
+        etats.add(nouvel_final)
+        etats.update(auto_copy.etats)
+        
+        # Les anciens états finaux ne sont plus finaux
+        for etat in auto_copy.etats_finaux:
+            etat.est_final = False
+        
+        # Construction de l'automate
+        automate_etoile = AFNS(
+            alphabet=alphabet,
+            etats=etats,
+            etat_initial=nouvel_initial,
+            etats_finaux={nouvel_final}
+        )
+        
+        # Copier les transitions
+        for source, trans in auto_copy.transitions.items():
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    automate_etoile.ajouter_transition(source, symbole, dest)
+        
+        # Ajouter les ε-transitions pour l'étoile
+        # 1. Du nouvel initial vers l'ancien initial
+        automate_etoile.ajouter_transition_epsilon(nouvel_initial, auto_copy.etat_initial)
+        
+        # 2. Du nouvel initial vers le nouvel final (pour accepter ε)
+        automate_etoile.ajouter_transition_epsilon(nouvel_initial, nouvel_final)
+        
+        # 3. Des anciens finaux vers le nouvel final
+        for etat_final in auto_copy.etats_finaux:
+            automate_etoile.ajouter_transition_epsilon(etat_final, nouvel_final)
+        
+        # 4. Des anciens finaux vers l'ancien initial (pour la répétition)
+        for etat_final in auto_copy.etats_finaux:
+            automate_etoile.ajouter_transition_epsilon(etat_final, auto_copy.etat_initial)
+        
+        return automate_etoile
+    
+    def construire_plus(self, automate: 'AFNS') -> 'AFNS':
+        """Construit l'automate pour l'opération plus (+)"""
+        # A+ = AA*
+        auto_copy = self._copier_automate(automate)
+        etoile = self.construire_etoile(automate)
+        
+        return self.construire_concatenation(auto_copy, etoile)
+    
+    def construire_optionnel(self, automate: 'AFNS') -> 'AFNS':
+        """Construit l'automate pour l'opération optionnelle (?)"""
+        auto_copy = self._copier_automate(automate)
+        
+        nouvel_initial = Etat(self._generer_nom_etat())
+        nouvel_final = Etat(self._generer_nom_etat(), est_final=True)
+        
+        # Fusion des alphabets et états
+        alphabet = auto_copy.alphabet
+        etats = set()
+        etats.add(nouvel_initial)
+        etats.add(nouvel_final)
+        etats.update(auto_copy.etats)
+        
+        # Les anciens états finaux ne sont plus finaux
+        for etat in auto_copy.etats_finaux:
+            etat.est_final = False
+        
+        # Construction de l'automate
+        automate_opt = AFNS(
+            alphabet=alphabet,
+            etats=etats,
+            etat_initial=nouvel_initial,
+            etats_finaux={nouvel_final}
+        )
+        
+        # Copier les transitions
+        for source, trans in auto_copy.transitions.items():
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    automate_opt.ajouter_transition(source, symbole, dest)
+        
+        # Ajouter les ε-transitions pour l'optionnel
+        # 1. Du nouvel initial vers l'ancien initial
+        automate_opt.ajouter_transition_epsilon(nouvel_initial, auto_copy.etat_initial)
+        
+        # 2. Du nouvel initial vers le nouvel final (pour accepter ε)
+        automate_opt.ajouter_transition_epsilon(nouvel_initial, nouvel_final)
+        
+        # 3. Des anciens finaux vers le nouvel final
+        for etat_final in auto_copy.etats_finaux:
+            automate_opt.ajouter_transition_epsilon(etat_final, nouvel_final)
+        
+        return automate_opt
+    
+    def construire_intersection(self, auto1: 'AFNS', auto2: 'AFNS') -> 'AFNS':
+        """
+        Construit l'automate pour l'intersection de deux automates.
+        Utilise la construction par produit cartésien des états.
+        """
+        # Convertir en automate déterministe si nécessaire pour simplifier l'intersection
+        ad1 = auto1.determiniser() if hasattr(auto1, 'determiniser') else auto1
+        ad2 = auto2.determiniser() if hasattr(auto2, 'determiniser') else auto2
+        
+        # Alphabet de l'intersection
+        alphabet = ad1.alphabet & ad2.alphabet
+        
+        # États : produit cartésien des états des deux automates
+        etats = set()
+        etat_map = {}  # Pour mapper (état1, état2) -> nouvel_état
+        
+        # État initial : produit des états initiaux
+        nom_initial = f"({ad1.etat_initial.nom},{ad2.etat_initial.nom})"
+        etat_initial = Etat(nom_initial)
+        
+        # Un état est final si les deux états composants sont finaux
+        est_final_initial = (ad1.etat_initial in ad1.etats_finaux and 
+                           ad2.etat_initial in ad2.etats_finaux)
+        etat_initial.est_final = est_final_initial
+        
+        etats.add(etat_initial)
+        etat_map[(ad1.etat_initial, ad2.etat_initial)] = etat_initial
+        
+        # Construction de l'automate intersection
+        automate_inter = AFNS(
+            alphabet=alphabet,
+            etats={etat_initial},
+            etat_initial=etat_initial,
+            etats_finaux=set()
+        )
+        
+        if est_final_initial:
+            automate_inter.etats_finaux.add(etat_initial)
+        
+        # File pour explorer les états
+        etats_a_explorer = [(ad1.etat_initial, ad2.etat_initial)]
+        etats_explores = set()
+        
+        while etats_a_explorer:
+            etat1, etat2 = etats_a_explorer.pop(0)
+            
+            if (etat1, etat2) in etats_explores:
+                continue
+            etats_explores.add((etat1, etat2))
+            
+            etat_source = etat_map[(etat1, etat2)]
+            
+            # Pour chaque symbole de l'alphabet commun
+            for symbole in alphabet:
+                # Destinations depuis etat1 avec symbole
+                dest1_set = set()
+                if etat1 in ad1.transitions and symbole in ad1.transitions[etat1]:
+                    dest1_set = ad1.transitions[etat1][symbole]
+                
+                # Destinations depuis etat2 avec symbole
+                dest2_set = set()
+                if etat2 in ad2.transitions and symbole in ad2.transitions[etat2]:
+                    dest2_set = ad2.transitions[etat2][symbole]
+                
+                # Produit cartésien des destinations
+                for dest1 in dest1_set:
+                    for dest2 in dest2_set:
+                        # Créer l'état destination s'il n'existe pas
+                        if (dest1, dest2) not in etat_map:
+                            nom_dest = f"({dest1.nom},{dest2.nom})"
+                            etat_dest = Etat(nom_dest)
+                            
+                            # Final si les deux composants sont finaux
+                            est_final_dest = (dest1 in ad1.etats_finaux and 
+                                            dest2 in ad2.etats_finaux)
+                            etat_dest.est_final = est_final_dest
+                            
+                            etat_map[(dest1, dest2)] = etat_dest
+                            automate_inter.etats.add(etat_dest)
+                            
+                            if est_final_dest:
+                                automate_inter.etats_finaux.add(etat_dest)
+                            
+                            # Ajouter à la file d'exploration
+                            etats_a_explorer.append((dest1, dest2))
+                        
+                        etat_dest = etat_map[(dest1, dest2)]
+                        
+                        # Ajouter la transition
+                        automate_inter.ajouter_transition(etat_source, symbole, etat_dest)
+        
+        return automate_inter
+    
+    @classmethod
+    def construire_intersection_regex(cls, regex1: str, regex2: str) -> 'AFNS':
+        """
+        Construit l'automate pour l'intersection de deux expressions régulières.
+        
+        Args:
+            regex1 (str): Première expression régulière
+            regex2 (str): Deuxième expression régulière
+            
+        Returns:
+            AFNS: Automate représentant l'intersection des deux langages
+        """
+        parser = cls()
+        
+        # Construire les automates pour chaque regex
+        auto1 = parser.parser_regex(regex1)
+        auto2 = parser.parser_regex(regex2)
+        
+        # Construire l'intersection
+        return parser.construire_intersection(auto1, auto2)
+    
+    def cloturer_par_intersection(self, automates: List['AFNS']) -> 'AFNS':
+        """
+        Calcule la clôture par intersection d'une liste d'automates.
+        Retourne l'automate représentant l'intersection de tous les automates donnés.
+        
+        Args:
+            automates (List[AFNS]): Liste des automates à intersecter
+            
+        Returns:
+            AFNS: Automate représentant l'intersection de tous les automates
+            
+        Raises:
+            ValueError: Si la liste est vide
+        """
+        if not automates:
+            raise ValueError("La liste d'automates ne peut pas être vide")
+        
+        if len(automates) == 1:
+            return self._copier_automate(automates[0])
+        
+        # Commencer avec le premier automate
+        resultat = self._copier_automate(automates[0])
+        
+        # Intersecter successivement avec tous les autres
+        for i in range(1, len(automates)):
+            resultat = self.construire_intersection(resultat, automates[i])
+        
+        return resultat
+    
+    @classmethod
+    def cloturer_regex_par_intersection(cls, regexes: List[str]) -> 'AFNS':
+        """
+        Calcule la clôture par intersection d'une liste d'expressions régulières.
+        
+        Args:
+            regexes (List[str]): Liste des expressions régulières
+            
+        Returns:
+            AFNS: Automate représentant l'intersection de tous les langages
+        """
+        if not regexes:
+            raise ValueError("La liste d'expressions régulières ne peut pas être vide")
+        
+        parser = cls()
+        
+        # Construire les automates pour chaque regex
+        automates = []
+        for regex in regexes:
+            automate = parser.parser_regex(regex)
+            automates.append(automate)
+        
+        # Calculer la clôture par intersection
+        return parser.cloturer_par_intersection(automates)
     def construire_automate_base(self, symbole: str) -> 'AFNS':
         """Construit l'automate de base pour un symbole"""        
-        q0 = Etat(f"q{uuid.uuid4().hex[:8]}")
-        q1 = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
+        q0 = Etat(self._generer_nom_etat())
+        q1 = Etat(self._generer_nom_etat(), est_final=True)
         
         automate = AFNS(
             alphabet={symbole},
@@ -657,156 +951,184 @@ class RegexParser:
         return automate
         
     def _copier_automate(self, automate: Automate):
-        return automate.copy()
+        return copy.deepcopy(automate)
     
     def construire_union(self, auto1: 'AFNS', auto2: 'AFNS') -> 'AFNS':
-        """Construit l'union de deux automates (a|b)"""
-        # Faire des copies profondes pour éviter les effets de bord
         auto1_copy = self._copier_automate(auto1)
         auto2_copy = self._copier_automate(auto2)
-        
-        # Nouvel état initial et final
-        nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}")
-        nouvel_final = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
-        
-        # Union des alphabets et états
-        nouvel_alphabet = auto1_copy.alphabet | auto2_copy.alphabet
-        nouveaux_etats = {nouvel_initial, nouvel_final} | auto1_copy.etats | auto2_copy.etats
-        
-        # Marquer les anciens états finaux comme non-finaux
+
+        nouvel_initial = Etat(self._generer_nom_etat())
+        nouvel_final = Etat(self._generer_nom_etat(), est_final=True)
+
+        # Fusion des alphabets et états
+        alphabet = auto1_copy.alphabet | auto2_copy.alphabet
+        etats = set()
+        etats.add(nouvel_initial)
+        etats.add(nouvel_final)
+        etats.update(auto1_copy.etats)
+        etats.update(auto2_copy.etats)
+
+        # Les anciens états finaux ne sont plus finaux
         for etat in auto1_copy.etats_finaux | auto2_copy.etats_finaux:
             etat.est_final = False
-        
-        # Créer le nouvel automate
+
+        # Construction de l'automate
         automate = AFNS(
-            alphabet=nouvel_alphabet,
-            etats=nouveaux_etats,
+            alphabet=alphabet,
+            etats=etats,
             etat_initial=nouvel_initial,
             etats_finaux={nouvel_final}
         )
-        
-        # Copier les transitions des automates originaux
-        for source in auto1_copy.transitions:
-            for symbole in auto1_copy.transitions[source]:
-                for dest in auto1_copy.transitions[source][symbole]:
+
+        # Copier les transitions
+        for source, trans in list(auto1_copy.transitions.items()) + list(auto2_copy.transitions.items()):
+            for symbole, destinations in trans.items():
+                for dest in destinations:
                     automate.ajouter_transition(source, symbole, dest)
-        
-        for source in auto2_copy.transitions:
-            for symbole in auto2_copy.transitions[source]:
-                for dest in auto2_copy.transitions[source][symbole]:
-                    automate.ajouter_transition(source, symbole, dest)
-        
+
         # Ajouter les ε-transitions
         automate.ajouter_transition_epsilon(nouvel_initial, auto1_copy.etat_initial)
         automate.ajouter_transition_epsilon(nouvel_initial, auto2_copy.etat_initial)
-        
+
         for etat_final in auto1_copy.etats_finaux:
             automate.ajouter_transition_epsilon(etat_final, nouvel_final)
         for etat_final in auto2_copy.etats_finaux:
             automate.ajouter_transition_epsilon(etat_final, nouvel_final)
-        
+
         return automate
     
     def construire_concatenation(self, auto1: 'AFNS', auto2: 'AFNS') -> 'AFNS':
-        """Construit la concaténation (ab)"""
-        # Faire des copies profondes pour éviter les effets de bord
         auto1_copy = self._copier_automate(auto1)
         auto2_copy = self._copier_automate(auto2)
-        
-        # Union des alphabets et états
-        nouvel_alphabet = auto1_copy.alphabet | auto2_copy.alphabet
-        nouveaux_etats = auto1_copy.etats | auto2_copy.etats
-        
-        # Marquer les anciens états finaux du premier automate comme non-finaux
+
+        # Fusion des alphabets et états
+        alphabet = auto1_copy.alphabet | auto2_copy.alphabet
+        etats = set()
+        etats.update(auto1_copy.etats)
+        etats.update(auto2_copy.etats)
+
+        # Les anciens états finaux de auto1 ne sont plus finaux
         for etat in auto1_copy.etats_finaux:
             etat.est_final = False
-        
-        # Créer le nouvel automate
+
+        # Construction de l'automate
         automate = AFNS(
-            alphabet=nouvel_alphabet,
-            etats=nouveaux_etats,
+            alphabet=alphabet,
+            etats=etats,
             etat_initial=auto1_copy.etat_initial,
             etats_finaux=auto2_copy.etats_finaux
         )
-        
-        # Copier toutes les transitions
-        for source in auto1_copy.transitions:
-            for symbole in auto1_copy.transitions[source]:
-                for dest in auto1_copy.transitions[source][symbole]:
+
+        # Copier les transitions
+        for source, trans in list(auto1_copy.transitions.items()) + list(auto2_copy.transitions.items()):
+            for symbole, destinations in trans.items():
+                for dest in destinations:
                     automate.ajouter_transition(source, symbole, dest)
-        
-        for source in auto2_copy.transitions:
-            for symbole in auto2_copy.transitions[source]:
-                for dest in auto2_copy.transitions[source][symbole]:
-                    automate.ajouter_transition(source, symbole, dest)
-        
+
         # Ajouter les ε-transitions des états finaux de auto1 vers l'état initial de auto2
         for etat_final in auto1_copy.etats_finaux:
             automate.ajouter_transition_epsilon(etat_final, auto2_copy.etat_initial)
-        
+
         return automate
     
     def construire_etoile(self, automate: 'AFNS') -> 'AFNS':
-        """Construit l'étoile de Kleene (a*)"""
-        # Faire une copie profonde pour éviter les effets de bord
-        automate_copy = self._copier_automate(automate)
+        """Construit l'automate pour l'opération étoile (*)"""
+        auto_copy = self._copier_automate(automate)
         
-        nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
-        nouveaux_etats = {nouvel_initial} | automate_copy.etats
+        nouvel_initial = Etat(self._generer_nom_etat())
+        nouvel_final = Etat(self._generer_nom_etat(), est_final=True)
         
-        # Créer le nouvel automate
-        nouvel_automate = AFNS(
-            alphabet=automate_copy.alphabet,
-            etats=nouveaux_etats,
+        # Fusion des alphabets et états
+        alphabet = auto_copy.alphabet
+        etats = set()
+        etats.add(nouvel_initial)
+        etats.add(nouvel_final)
+        etats.update(auto_copy.etats)
+        
+        # Les anciens états finaux ne sont plus finaux
+        for etat in auto_copy.etats_finaux:
+            etat.est_final = False
+        
+        # Construction de l'automate
+        automate_etoile = AFNS(
+            alphabet=alphabet,
+            etats=etats,
             etat_initial=nouvel_initial,
-            etats_finaux={nouvel_initial} | automate_copy.etats_finaux
+            etats_finaux={nouvel_final}
         )
         
         # Copier les transitions
-        for source in automate_copy.transitions:
-            for symbole in automate_copy.transitions[source]:
-                for dest in automate_copy.transitions[source][symbole]:
-                    nouvel_automate.ajouter_transition(source, symbole, dest)
+        for source, trans in auto_copy.transitions.items():
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    automate_etoile.ajouter_transition(source, symbole, dest)
         
-        # Ajouter les ε-transitions
-        nouvel_automate.ajouter_transition_epsilon(nouvel_initial, automate_copy.etat_initial)
+        # Ajouter les ε-transitions pour l'étoile
+        # 1. Du nouvel initial vers l'ancien initial
+        automate_etoile.ajouter_transition_epsilon(nouvel_initial, auto_copy.etat_initial)
         
-        for etat_final in automate_copy.etats_finaux:
-            nouvel_automate.ajouter_transition_epsilon(etat_final, automate_copy.etat_initial)
+        # 2. Du nouvel initial vers le nouvel final (pour accepter ε)
+        automate_etoile.ajouter_transition_epsilon(nouvel_initial, nouvel_final)
         
-        return nouvel_automate
+        # 3. Des anciens finaux vers le nouvel final
+        for etat_final in auto_copy.etats_finaux:
+            automate_etoile.ajouter_transition_epsilon(etat_final, nouvel_final)
+        
+        # 4. Des anciens finaux vers l'ancien initial (pour la répétition)
+        for etat_final in auto_copy.etats_finaux:
+            automate_etoile.ajouter_transition_epsilon(etat_final, auto_copy.etat_initial)
+        
+        return automate_etoile
     
     def construire_plus(self, automate: 'AFNS') -> 'AFNS':
-        """Construit A+ équivalent à AA*"""
-        # Faire des copies séparées pour éviter les conflits
-        automate_copy1 = self._copier_automate(automate)
-        automate_copy2 = self._copier_automate(automate)
+        """Construit l'automate pour l'opération plus (+)"""
+        # A+ = AA*
+        auto_copy = self._copier_automate(automate)
+        etoile = self.construire_etoile(automate)
         
-        etoile = self.construire_etoile(automate_copy2)
-        return self.construire_concatenation(automate_copy1, etoile)
-
-
+        return self.construire_concatenation(auto_copy, etoile)
+    
     def construire_optionnel(self, automate: 'AFNS') -> 'AFNS':
-        """Construit A? équivalent à (A|ε)"""
-                
-        nouvel_initial = Etat(f"q{uuid.uuid4().hex[:8]}", est_final=True)
-        nouveaux_etats = {nouvel_initial} | automate.etats
+        """Construit l'automate pour l'opération optionnelle (?)"""
+        auto_copy = self._copier_automate(automate)
         
-        # Créer le nouvel automate
-        nouvel_automate = AFNS(
-            alphabet=automate.alphabet,
-            etats=nouveaux_etats,
+        nouvel_initial = Etat(self._generer_nom_etat())
+        nouvel_final = Etat(self._generer_nom_etat(), est_final=True)
+        
+        # Fusion des alphabets et états
+        alphabet = auto_copy.alphabet
+        etats = set()
+        etats.add(nouvel_initial)
+        etats.add(nouvel_final)
+        etats.update(auto_copy.etats)
+        
+        # Les anciens états finaux ne sont plus finaux
+        for etat in auto_copy.etats_finaux:
+            etat.est_final = False
+        
+        # Construction de l'automate
+        automate_opt = AFNS(
+            alphabet=alphabet,
+            etats=etats,
             etat_initial=nouvel_initial,
-            etats_finaux={nouvel_initial} | automate.etats_finaux
+            etats_finaux={nouvel_final}
         )
         
         # Copier les transitions
-        for source in automate.transitions:
-            for symbole in automate.transitions[source]:
-                for dest in automate.transitions[source][symbole]:
-                    nouvel_automate.ajouter_transition(source, symbole, dest)
+        for source, trans in auto_copy.transitions.items():
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    automate_opt.ajouter_transition(source, symbole, dest)
         
-        # Ajouter l'ε-transition
-        nouvel_automate.ajouter_transition_epsilon(nouvel_initial, automate.etat_initial)
+        # Ajouter les ε-transitions pour l'optionnel
+        # 1. Du nouvel initial vers l'ancien initial
+        automate_opt.ajouter_transition_epsilon(nouvel_initial, auto_copy.etat_initial)
         
-        return nouvel_automate
+        # 2. Du nouvel initial vers le nouvel final (pour accepter ε)
+        automate_opt.ajouter_transition_epsilon(nouvel_initial, nouvel_final)
+        
+        # 3. Des anciens finaux vers le nouvel final
+        for etat_final in auto_copy.etats_finaux:
+            automate_opt.ajouter_transition_epsilon(etat_final, nouvel_final)
+        
+        return automate_opt

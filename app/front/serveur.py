@@ -546,7 +546,7 @@ class AutomatonServer:
         if operation == 'union':
             result_automate = self.gestionnaire.union_automates(auto1, auto2)
         elif operation == 'intersection':
-            result_automate = self.gestionnaire.intersection_automates(auto1, auto2)
+            result_automate = self.gestionnaire.intersection_automates_v2(auto1, auto2)
         elif operation == 'concatenation':
             result_automate = self.gestionnaire.concatenation_automates(auto1, auto2)
         else:

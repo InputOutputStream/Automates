@@ -345,21 +345,21 @@ class Automate(ABC):
                         self.ajouter_transition(source, symbole, destination)
     
     def copy(self):
-        from copy import deepcopy
-        new_automate = Automate(
+        new_instance = self.__class__(
             alphabet=self.alphabet.copy(),
             etats_finaux=set(copy(etat) for etat in self.etats_finaux),
             etats=set(copy(etat) for etat in self.etats),
             etat_initial=copy(self.etat_initial)
         )
-        new_automate.transitions = {
+        new_instance.transitions = {
             copy(src): {
                 sym: set(copy(dst) for dst in dests)
                 for sym, dests in sym_dict.items()
             }
             for src, sym_dict in self.transitions.items()
         }
-        return new_automate
+        new_instance.epsilon = self.epsilon
+        return new_instance
 
 
 
@@ -393,12 +393,15 @@ class AD(Automate):
         return AD(autre=self)
 
     def ajouter_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
-        """Ajoute une transition en respectant le déterminisme."""
+        """Ajoute une transition en respectant le déterminisme, sauf si elle est déjà identique."""
         if etat_source in self.transitions and symbole in self.transitions[etat_source]:
-            if self.transitions[etat_source][symbole]:
-                raise ValueError("Transition déjà définie - violation du déterminisme")
-        super().ajouter_transition(etat_source, symbole, etat_cible)
-    
+            destinations = self.transitions[etat_source][symbole]
+            if etat_cible in destinations:
+               return  
+        else:
+            raise ValueError("Transition déjà définie - violation du déterminisme")
+
+
     def est_deterministe(self) -> bool:
         """Retourne toujours True pour un AD."""
         return True
@@ -1018,11 +1021,14 @@ class MinimisateurAutomate:
     
     
     def _obtenir_destination(self, etat: Etat, symbole: str) -> Optional[Etat]:
-        """Obtient l'état de destination pour une transition donnée."""
-        for source, sym, dest in self.automate.transitions:
-            if source == etat and sym == symbole:
-                return dest
+        """Obtient une destination unique (pour automate déterministe)."""
+        if etat in self.automate.transitions:
+            if symbole in self.automate.transitions[etat]:
+                destinations = self.automate.transitions[etat][symbole]
+                if len(destinations) == 1:
+                    return next(iter(destinations))  # déterministe : un seul élément
         return None
+
     
     
     def _construire_automate_minimal(self, classes_etats: Dict[Etat, Set[Etat]]) -> 'AutomateMinimal':
@@ -1055,15 +1061,19 @@ class MinimisateurAutomate:
         
         # Construire les transitions
         transitions_ajoutees = set()
-        for source, symbole, dest in self.automate.transitions:
-            nouvelle_source = mapping_etats[source]
-            nouvelle_dest = mapping_etats[dest]
-            
-            transition = (nouvelle_source, symbole, nouvelle_dest)
-            if transition not in transitions_ajoutees:
-                automate_temp.ajouter_transition(nouvelle_source, symbole, nouvelle_dest)
-                transitions_ajoutees.add(transition)
-        
+        for source, trans_dict in self.automate.transitions.items():
+            for symbole, destinations in trans_dict.items():
+                for dest in destinations:
+                    nouvelle_source = mapping_etats[source]
+                    nouvelle_dest = mapping_etats[dest]
+                    transition = (nouvelle_source, symbole, nouvelle_dest)
+                    if transition not in transitions_ajoutees:
+                       # Vérifie que la transition n’existe pas déjà (prévention AD)
+                        if (nouvelle_source not in automate_temp.transitions or
+                            symbole not in automate_temp.transitions[nouvelle_source] or
+                            nouvelle_dest not in automate_temp.transitions[nouvelle_source][symbole]):
+                            automate_temp.ajouter_transition(nouvelle_source, symbole, nouvelle_dest)
+
         return automate_temp
 
 
