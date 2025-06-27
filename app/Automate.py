@@ -1159,3 +1159,48 @@ class AutomateMinimal(AFDC):
 
     def copy(self):
         return AutomateMinimal(self.automate_source.copy())
+
+
+class Canonisation:
+    """
+    Classe utilitaire pour convertir un automate quelconque
+    (AFNS, AFND, AND, etc.) en un automate fini déterministe complet minimal (AFDC).
+    """
+
+    @staticmethod
+    def appliquer(automate: 'Automate') -> 'AutomateMinimal':
+        """
+        Canonise un automate :
+        - Élimine les ε-transitions si nécessaire (AFNS)
+        - Déterminise (AFND ou AND)
+        - Complète (si pas encore ADC)
+        - Minimise (AutomateMinimal)
+
+        Retourne un automate minimal de type `AutomateMinimal`.
+        """
+        # Étape 1 : Éliminer les ε-transitions si AFNS
+        if isinstance(automate, AFNS):
+            automate = automate.eliminer_epsilon_transitions()
+
+        # Étape 2 : Déterminisation (si AFND ou AND)
+        if isinstance(automate, (AFND, AND)):
+            automate = automate.construction_sous_ensembles()
+
+        # Étape 3 : Complétion (si ce n’est pas un AFDC)
+        if not isinstance(automate, AFDC):
+            # Construire un AFDC avec les mêmes composants
+            nouveau = AFDC(
+                alphabet=automate.alphabet,
+                etats=automate.etats,
+                etat_initial=automate.etat_initial,
+                etats_finaux=automate.etats_finaux
+            )
+            # Copier les transitions existantes
+            for source, trans in automate.transitions.items():
+                for symbole, destinations in trans.items():
+                    for dest in destinations:
+                        nouveau.ajouter_transition(source, symbole, dest)
+            automate = nouveau
+
+        # Étape 4 : Minimisation
+        return AutomateMinimal(automate)
