@@ -540,6 +540,156 @@ class GestionnaireOperations:
         auto2_min = self.minimiser_automate(auto2.determinisation_thompson()) if isinstance(auto2, AND) else auto2
         return auto1_min.etats == auto2_min.etats and auto1_min.transitions == auto2_min.transitions
     
+
+
+
+
+    def afd_vers_afn(afd: AD) -> AFNS:
+        """
+        Convertit un AFD (AD) en un AFN (AFNS).
+        
+        Args:
+            afd (AD): Automate fini déterministe à convertir.
+            
+        Returns:
+            AFNS: Automate fini non-déterministe équivalent.
+        """
+        # Copier les états avec leur statut (initial/final)
+        nouveaux_etats = set()
+        etat_mapping = {}
+        
+        for etat in afd.etats:
+            nouveau = Etat(etat.nom, est_initial=etat.est_initial, est_final=etat.est_final)
+            etat_mapping[etat] = nouveau
+            nouveaux_etats.add(nouveau)
+        
+        # Créer l'automate AFNS
+        afn = AFNS(
+            alphabet=afd.alphabet.copy(),
+            etats=nouveaux_etats,
+            etat_initial=etat_mapping[afd.etat_initial],
+            etats_finaux={etat_mapping[e] for e in afd.etats_finaux}
+        )
+        
+        # Copier les transitions de l'AFD dans l'AFN
+        for source, transitions in afd.transitions.items():
+            for symbole, destinations in transitions.items():
+                for destination in destinations:
+                    afn.ajouter_transition(etat_mapping[source], symbole, etat_mapping[destination])
+        
+        return afn
+    
+
+
+    def afn_vers_eps_afn(afn: AFNS) -> AFNS:
+        """
+        Convertit un AFN en un ε-AFN en insérant des transitions ε intermédiaires.
+        
+        Args:
+            afn (AFNS): Automate fini non-déterministe sans ε-transitions.
+            
+        Returns:
+            AFNS: Équivalent avec uniquement transitions ε + symboliques après.
+        """
+        nouvel_etats = set()
+        etat_mapping = {}  # mapping des anciens états
+
+        # Copie des états existants
+        for etat in afn.etats:
+            clone = Etat(etat.nom, est_initial=etat.est_initial, est_final=etat.est_final)
+            etat_mapping[etat] = clone
+            nouvel_etats.add(clone)
+
+        # Nouveau jeu de transitions
+        new_afn = AFNS(
+            alphabet=afn.alphabet.copy() | {""},  # Ajouter epsilon
+            etats=nouvel_etats,
+            etat_initial=etat_mapping[afn.etat_initial],
+            etats_finaux={etat_mapping[e] for e in afn.etats_finaux}
+        )
+
+        for source, trans in afn.transitions.items():
+            for symbole, destinations in trans.items():
+                for dest in destinations:
+                    # Créer un état intermédiaire
+                    inter = Etat(f"{source.nom}_{symbole}_{dest.nom}_ε")
+                    nouvel_etats.add(inter)
+
+                    # Ajouter transition epsilon : source → inter
+                    new_afn.ajouter_transition(etat_mapping[source], "", inter)
+
+                    # Ajouter transition réelle : inter → dest
+                    new_afn.ajouter_transition(inter, symbole, etat_mapping[dest])
+
+        return new_afn
+    
+
+    def eps_afn_vers_afn(eps_afn: AFNS) -> AFNS:
+        """
+        Convertit un ε-AFN en un AFN (sans ε-transitions).
+        
+        Args:
+            eps_afn (AFNS): Automate avec transitions ε.
+            
+        Returns:
+            AFNS: Automate équivalent sans transitions ε.
+        """
+        # Étape 1 : copier les états
+        etat_mapping = {}
+        nouveaux_etats = set()
+
+        for etat in eps_afn.etats:
+            copie = Etat(etat.nom, est_initial=etat.est_initial, est_final=False)
+            etat_mapping[etat] = copie
+            nouveaux_etats.add(copie)
+
+        # Étape 2 : calculer epsilon_closure de chaque état
+        def epsilon_closure(etat):
+            visited = set()
+            stack = [etat]
+            while stack:
+                e = stack.pop()
+                if e not in visited:
+                    visited.add(e)
+                    for dest in eps_afn.transitions.get(e, {}).get("", set()):
+                        stack.append(dest)
+            return visited
+
+        closures = {e: epsilon_closure(e) for e in eps_afn.etats}
+
+        # Étape 3 : construire les nouvelles transitions sans ε
+        new_afn = AFNS(
+            alphabet=eps_afn.alphabet - {""},
+            etats=nouveaux_etats,
+            etat_initial=etat_mapping[eps_afn.etat_initial],
+            etats_finaux=set()
+        )
+
+        for etat in eps_afn.etats:
+            closure = closures[etat]
+            for symbole in eps_afn.alphabet:
+                if symbole == "":
+                    continue
+                destinations = set()
+                for e in closure:
+                    if e in eps_afn.transitions and symbole in eps_afn.transitions[e]:
+                        for target in eps_afn.transitions[e][symbole]:
+                            destinations.update(closures[target])
+                for dest in destinations:
+                    new_afn.ajouter_transition(etat_mapping[etat], symbole, etat_mapping[dest])
+
+        # Étape 4 : marquer les états finaux
+        for etat in eps_afn.etats:
+            closure = closures[etat]
+            if any(c in eps_afn.etats_finaux for c in closure):
+                etat_mapping[etat].est_final = True
+                new_afn.etats_finaux.add(etat_mapping[etat])
+
+        return new_afn
+
+
+
+
     def generer_donnees_json(self, automate: Automate) -> str:
     
         """Génère les données JSON pour le frontend"""
