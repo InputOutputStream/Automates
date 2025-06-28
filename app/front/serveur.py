@@ -238,25 +238,20 @@ class AutomatonServer:
     @handle_api_errors
     def eqn2regex(self):
         """From equations to regex using Arden Lemma"""
-        """
-            Doit retouner la regex vers l'api mais actu ne le fais pas encore
-        """
         try:
             data = request.get_json()
             if not data or 'equations' not in data:
-                # Support legacy format
-                if 'equations' in data:
-                    data['equations'] = data['equations']
-                else:
-                    return jsonify({'error': 'Missing equation or operation parameter'}), 400
+                return jsonify({'error': 'Missing equations parameter'}), 400
             
             equations = data['equations']
             
+            # Validation des équations
             if not self.gestionnaire.validate_equations(equations):
                 return jsonify({'error': 'Invalid equations format structure'}), 400
             
+            # Résolution
             result = self.gestionnaire.eqn2reg(equations)
-            logger.info(f"Solving Equations")
+            logger.info(f"Equations resolved to: {result}")
         
             return jsonify({
                 'success': True,
@@ -264,8 +259,11 @@ class AutomatonServer:
                 'message': 'Equations solved successfully'
             })
         
+        except ValueError as ve:
+            logger.error(f"Validation error: {str(ve)}")
+            return jsonify({'error': f'Validation failed: {str(ve)}'}), 400
         except Exception as e:
-            logger.error(f"Error solving eqn systeme: {str(e)}")
+            logger.error(f"Error solving equation system: {str(e)}")
             logger.error(traceback.format_exc())
             return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
 
@@ -617,7 +615,7 @@ class AutomatonServer:
         if operation == 'union':
             result_automate = self.gestionnaire.union_automates(auto1, auto2)
         elif operation == 'intersection':
-            result_automate = self.gestionnaire.intersection_automates_v2(auto1, auto2)
+            result_automate = self.gestionnaire.intersection_automates(auto1, auto2)
         elif operation == 'concatenation':
             result_automate = self.gestionnaire.concatenation_automates(auto1, auto2)
         else:
@@ -734,7 +732,7 @@ class AutomatonServer:
         
         operations = {
             'union': self.gestionnaire.union_automates,
-            'intersection': self.gestionnaire.intersection_automates_v2,
+            'intersection': self.gestionnaire.intersection_automates,
             'concatenation': self.gestionnaire.concatenation_automates
         }
         

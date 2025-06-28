@@ -9,11 +9,6 @@ from .Etat import Etat
 from .RegexSolver import RegexSystemSolver
 
 
-class AlphabetError(Exception):
-    """Exception levée lors d'erreurs d'alphabet."""
-    pass
-
-
 class LangageReconnaissable(Langage):
     """
     Langage reconnaissable (régulier).
@@ -324,22 +319,23 @@ class LangageReconnaissable(Langage):
         
         return '+'.join(final_expr) if final_expr else '∅'
 
-# ==================== UTILITAIRES POUR LEMMES D'ARDEN ====================
+# ==================== UTILITAIRES POUR LEMMES D'ARDEN + GAUSS ====================
 
     @staticmethod
-    def appliquer_lemmes_arden(systeme: Dict[str, str],):
+    def appliquer_lemmes_arden(systeme: Dict[str, str]):
+        """Applique les lemmes d'Arden pour résoudre un système d'équations"""
         solver = RegexSystemSolver()
-        for eqn in systeme:
-            var, exp = eqn.strip(" ").split("=")
-            print(var, "=", exp)
+                
+        # Ajouter chaque équation au solver
+        for var, exp in systeme.items():
             solver.add_equation(var, exp)
     
+        # Résoudre le système
         order = solver.compute_elimination_order()
         solutions = solver.solve_system(elimination_order=order)
-        print(solutions)
-        var, expr = solver.find_shortest_resolved()
-        return expr
-
+        
+        return solutions
+    
    # =================== Automate vers Regex ==========================
     @classmethod
     def arden_dfa_to_regex(cls, automaton):

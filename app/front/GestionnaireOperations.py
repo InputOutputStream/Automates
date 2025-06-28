@@ -58,12 +58,7 @@ class GestionnaireOperations:
             return automate
         
         # Création directe d'un ADC
-        return ADC(
-            alphabet=automate.alphabet,
-            etats=automate.etats,
-            etat_initial=automate.etat_initial,
-            etats_finaux=automate.etats_finaux
-        )
+        return ADC(autre=automate)
 
     
     def complementaire_automate(self, automate: AFDC) -> AFDC:
@@ -91,11 +86,26 @@ class GestionnaireOperations:
         """Application du lemme d'arden """
         return LangageReconnaissable.arden_dfa_to_regex(automaton)
     
-        
+    
     def eqn2reg(self, equations):
-        """Application du lemme d'arden """
-        return LangageReconnaissable.appliquer_lemmes_arden(equations)
-                
+        """Application du lemme d'arden"""
+        # Conversion du format si nécessaire
+        if isinstance(equations, list):
+            # Si c'est une liste d'équations sous forme de strings
+            systeme = {}
+            for eqn in equations:
+                if "=" in eqn:
+                    var, exp = eqn.strip().split("=", 1)
+                    systeme[var.strip()] = exp.strip()
+                else:
+                    raise ValueError(f"Format d'équation invalide: {eqn}")
+        elif isinstance(equations, dict):
+            # Si c'est déjà un dictionnaire
+            systeme = equations
+        else:
+            raise ValueError("Format d'équations non supporté")
+        
+        return LangageReconnaissable.appliquer_lemmes_arden(systeme)
 
     def union_automates(self, auto1: Automate, auto2: Automate) -> Automate:
         """Union simplifiée - Évite la duplication de code"""
