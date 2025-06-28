@@ -275,77 +275,128 @@ function initializeFormListeners() {
     }
 
 
-    
-// Function to process automaton only
-async function processAutomaton(automaton) {
-    // Validate JSON
-    try {
-        JSON.parse(automaton);
-    } catch (error) {
-        showResult('eqn-result', 'Invalid JSON format for automaton.', 'error');
-        return false;
-    }
-
-    showResult('eqn-result', '<div class="loading"></div> Converting automaton to regex...', 'info');
-
-    // Call API to convert automaton to regex
-    const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'eqn-result');
-
-    if (!response || !response.regex) {
-        showResult('eqn-result', 'Failed to get regex from API.', 'error');
-        return false;
-    }
-
-    const regex = response.regex;
-
-    addToHistory('Automaton To Regex', { automaton }, { regex });
-    showResult('eqn-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
-    animateRecognition(JSON.parse(automaton), regex, 't-graph');
-
-    return false;
-}
-
-// Function to process equations only
-async function processEquations() {
-    if (!container) {
-        showResult('eqn-result', 'Missing equation container.', 'error');
-        return false;
-    }
-
-    try {
-        const eqn_list = [];
-        container.querySelectorAll("input").forEach(eqn => {
-            const value = eqn.value.trim();
-            if (value !== "") {
-                eqn_list.push(value);
-            }
-        });
-
-        if (eqn_list.length === 0) {
-            showResult('eqn-result', 'Please fill at least one equation.', 'error');
+        
+    // Function to process automaton only
+    async function processAutomaton(automaton) {
+        // Validate JSON
+        try {
+            JSON.parse(automaton);
+        } catch (error) {
+            showResult('eqn-result', 'Invalid JSON format for automaton.', 'error');
             return false;
         }
 
+        showResult('eqn-result', '<div class="loading"></div> Converting automaton to regex...', 'info');
 
-        showResult('eqn-result', '<div class="loading"></div> Solving equations...', 'info');
+        // Call API to convert automaton to regex
+        const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'eqn-result');
 
-        const eqnResponse = await makeAPICall('/api/automaton/eqn2regex', {
-            equations: eqn_list,
-        }, 'eqn-result');
-
-        if (eqnResponse) {
-            addToHistory('Equation To Regex', { equations: eqn_list}, eqnResponse);
-            showResult('eqn-result',
-                `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
+        if (!response || !response.regex) {
+            showResult('eqn-result', 'Failed to get regex from API.', 'error');
+            return false;
         }
 
-    } catch (error) {
-        showResult('eqn-result', 'Invalid equation input format.', 'error');
+        const regex = response.regex;
+
+        addToHistory('Automaton To Regex', { automaton }, { regex });
+        showResult('eqn-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
+        animateRecognition(JSON.parse(automaton), regex, 't-graph');
+
+        return false;
     }
 
-    return false;
-}
+    // Function to process equations only
+    async function processEquations() {
+        if (!container) {
+            showResult('eqn-result', 'Missing equation container.', 'error');
+            return false;
+        }
 
+        try {
+            const eqn_list = [];
+            container.querySelectorAll("input").forEach(eqn => {
+                const value = eqn.value.trim();
+                if (value !== "") {
+                    eqn_list.push(value);
+                }
+            });
+
+            if (eqn_list.length === 0) {
+                showResult('eqn-result', 'Please fill at least one equation.', 'error');
+                return false;
+            }
+
+
+            showResult('eqn-result', '<div class="loading"></div> Solving equations...', 'info');
+
+            const eqnResponse = await makeAPICall('/api/automaton/eqn2regex', {
+                equations: eqn_list,
+            }, 'eqn-result');
+
+            if (eqnResponse) {
+                addToHistory('Equation To Regex', { equations: eqn_list}, eqnResponse);
+                showResult('eqn-result',
+                    `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
+            }
+
+        } catch (error) {
+            showResult('eqn-result', 'Invalid equation input format.', 'error');
+        }
+
+        return false;
+    }
+
+
+    
+    // States Form Handler
+    const statesForm = document.getElementById('states-form');
+    if (statesForm) {
+        statesForm.addEventListener('submit', async function(e) {
+            console.log('states form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const automaton = document.getElementById('states-automaton-input').value.trim();
+            const operation = document.getElementById('states-operation-select').value;
+
+            if (!automaton) {
+                showResult('states-result', 'Please enter an automaton.', 'error');
+                return false;
+            }
+
+            if (!operation) {
+                showResult('states-result', 'Please select an operation.', 'error');
+                return false;
+            }
+
+            try {
+                JSON.parse(automaton);
+            } catch (error) {
+                showResult('states-result', 'Invalid JSON format for automaton.', 'error');
+                return false;
+            }
+
+            showResult('states-result', '<div class="loading"></div> Processing...', 'info');
+            
+            const response = await makeAPICall('/api/automaton/states', {
+                automaton: JSON.parse(automaton), 
+                operation: operation
+            }, 'states-result');
+            
+            if (response) { 
+                addToHistory(operation, automaton, response.states);
+                showResult('states-result', 
+                    `<button type="button" class="btn" onclick="copyToClipboardById('states-result-content')">
+                    📋 Copy</button>
+                    <h3>${operation} Result:</h3><pre id="states-result-content">${JSON.stringify(response.states, null, 2)}</pre>`, 
+                    'success'
+                );
+                renderGraph(response.automaton, 'states-graph');
+            }
+            
+            return false;
+        });
+    }
 }
 
 let operationHistory = [];

@@ -80,6 +80,62 @@ class AutomatonServer:
                 methods=['POST']
             )
 
+    
+    # Single automaton operations
+    def _states_operations(self):
+        """States operations for automaton (utiles, accessibles, coaccessibles)"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data or 'operation' not in data:
+                # Support legacy format
+                if 'automate' in data:
+                    data['automaton'] = data['automate']
+                else:
+                    return jsonify({'error': 'Missing automaton or operation parameter'}), 400
+            
+            # Handle legacy JSON string format
+            automaton_data = data['automaton']
+            if isinstance(automaton_data, str):
+                automaton_data = json.loads(automaton_data)
+            
+            if not self._validate_automaton_structure(automaton_data):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            automate = self._dict_to_automate(automaton_data)
+            operation = data['operation']
+            
+            logger.info(f"Performing operation: {operation}")
+            
+            if operation == 'coaccessibles':
+                result_states = self.gestionnaire.liste_etats_coaccessibles(automate)
+            elif operation == 'accessibles':
+                result_states = self.gestionnaire.liste_etats_accessibles(automate)
+            elif operation == 'utiles':
+                result_states = self.gestionnaire.liste_etats_utiles(automate)
+            else:
+                return jsonify({'error': f'Unknown operation: {operation}'}), 400
+            
+            if  not isinstance(result_states, (str, dict)):
+                serializable_states = [state.nom for state in result_states]
+            else:
+                serializable_states = result_states
+
+            print(serializable_states)
+ 
+            return jsonify({
+                'success': True,
+                'states': serializable_states,
+                'operation': operation,
+                'message': f'Operation "{operation}" completed successfully'
+            })
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}")
+            return jsonify({'error': 'Invalid JSON format in automaton data'}), 400
+        except Exception as e:
+            logger.error(f"Error in states operation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Operation failed: {str(e)}'}), 500
+
     def handle_api_errors(func):
         """Décorateur pour gérer les erreurs API"""
         from functools import wraps
@@ -109,6 +165,7 @@ class AutomatonServer:
             ('/api/regex/validate', 'validate_regex', self._validate_regex, ['POST']),
             ('/api/automaton/test', 'test_word', self.test_word_simplified, ['POST']),
             ('/api/automaton/transform', 'transform', self._transform_automaton, ['POST']),
+            ('/api/automaton/states', 'states', self._states_operations, ['POST']),
             # ADD THESE MISSING ROUTES:
             ('/api/automaton/kleene', 'kleene_star', self.kleene_star, ['POST']),
             ('/api/automaton/compare', 'compare_automata', self.compare_automata, ['POST']),
@@ -129,7 +186,7 @@ class AutomatonServer:
         self.app.add_url_rule('/api/automaton/a2regex', 'a2regex_manual', self.a2regex, methods=['POST'])
         
         self._setup_binary_routes()
-
+      
         
     def _serve_index(self):
         """Serve the main interface"""
@@ -173,6 +230,7 @@ class AutomatonServer:
             logger.error(traceback.format_exc())
             return jsonify({'error': f'Regex conversion failed: {str(e)}'}), 500
 
+    @handle_api_errors 
     def _validate_regex(self):
         """Validate regex syntax"""
         try:
@@ -269,7 +327,8 @@ class AutomatonServer:
 
 
 
-        # Single automaton operations
+    # Single automaton operations
+    @handle_api_errors 
     def _transform_automaton(self):
         """Transform automaton (determinize, minimize, complete, complement)"""
         try:
@@ -836,7 +895,8 @@ class AutomatonServer:
             
             # Unary operations
             "/api/automaton/kleene": "Kleene star of automaton",
-            
+            '/api/automaton/states': "Operations sur le traitements des etats de l'automate", 
+
             # Testing and comparison
             "/api/automaton/test": "Test word acceptance",
             "/api/tester": "Legacy: Test word acceptance",

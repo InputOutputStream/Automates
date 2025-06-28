@@ -1,7 +1,7 @@
+from collections import deque
 from itertools import product
 import json
 from typing import Tuple
-import re
 
 from app.front.RegexParser import RegexParser
 from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND, AD, AutomateMinimal, Canonisation
@@ -47,7 +47,6 @@ class GestionnaireOperations:
         result = step1.minimiser_optimise()
         self.operations_history.append("Minimisation par fusion")
         return result
-
 
     def completer_automate(self, automate: Automate) -> ADC:
         """Complète un automate"""
@@ -150,8 +149,6 @@ class GestionnaireOperations:
                         result.ajouter_transition(mapping[state], symbol, mapping[dest])
         
         return result
-
-
             
     def intersection_automates(self, auto1: Automate, auto2: Automate) -> Automate:
         """Intersection simplifiée - Une seule version optimisée"""
@@ -287,7 +284,150 @@ class GestionnaireOperations:
         auto1_min = self.minimiser_automate(auto1.determinisation_thompson()) if isinstance(auto1, AND) else auto1
         auto2_min = self.minimiser_automate(auto2.determinisation_thompson()) if isinstance(auto2, AND) else auto2
         return auto1_min.etats == auto2_min.etats and auto1_min.transitions == auto2_min.transitions
+
+    
+    def epsilon_afn_to_afn(self, automate: AFNS) -> AFND:
+        """Convertit un ε-AFN en AFN standard en éliminant les epsilon-transitions"""
+        epsilon = ""
         
+        # Calcul des fermetures epsilon pour tous les états
+        fermetures = {}
+        for etat in automate.etats:
+            fermetures[etat] = automate.epsilon_fermeture(etat)
+        
+        # Création de nouvelles transitions
+        nouvelles_transitions = {}
+        nouveaux_finaux = set(automate.etats_finaux)
+        
+        for etat in automate.etats:
+            # Vérifier si l'état devient final
+            if any(q in nouveaux_finaux for q in fermetures[etat]):
+                nouveaux_finaux.add(etat)
+                
+            # Calculer les nouvelles transitions
+            for symbole in automate.alphabet - {epsilon}:
+                destinations = set()
+                for q in fermetures[etat]:
+                    if q in automate.transitions and symbole in automate.transitions[q]:
+                        destinations |= automate.transitions[q][symbole]
+                
+                # Calculer la fermeture des destinations
+                fermeture_dests = set()
+                for dest in destinations:
+                    fermeture_dests |= fermetures[dest]
+                
+                if fermeture_dests:
+                    if etat not in nouvelles_transitions:
+                        nouvelles_transitions[etat] = {}
+                    nouvelles_transitions[etat][symbole] = fermeture_dests
+        
+        # Créer le nouvel automate AFND
+        return AFND(
+            alphabet=automate.alphabet - {epsilon},
+            etats=automate.etats,
+            etat_initial=automate.etat_initial,
+            etats_finaux=list(nouveaux_finaux),
+            transitions=nouvelles_transitions
+        )
+
+    def convert_afn_to_epsilon_afn(self, automate: AFND) -> AFNS:
+        """Convertit un AFN en ε-AFN en ajoutant un nouvel état initial"""
+        epsilon = ""
+        nouvel_initial = Etat("ε_init", est_initial=True)
+        
+        # Créer les nouveaux états
+        nouveaux_etats = automate.etats | {nouvel_initial}
+        
+        # Créer les nouvelles transitions
+        nouvelles_transitions = automate.transitions.copy()
+        
+        # Ajouter les transitions epsilon vers les anciens états initiaux
+        if nouvel_initial not in nouvelles_transitions:
+            nouvelles_transitions[nouvel_initial] = {}
+        
+        nouvelles_transitions[nouvel_initial][epsilon] = {automate.etat_initial}
+        
+        # Créer le nouvel automate AFNS
+        return AFNS(
+            alphabet=automate.alphabet | {epsilon},
+            etats=nouveaux_etats,
+            etat_initial=nouvel_initial,
+            etats_finaux=automate.etats_finaux,
+            transitions=nouvelles_transitions
+        )
+
+    def convert_afd_to_afn(self, automate: ADC) -> AFND:
+        """Convertit un AFD en AFN en ajustant la représentation"""
+        # Convertir les transitions AFD en format AFN
+        nouvelles_transitions = {}
+        for etat, trans in automate.transitions.items():
+            nouvelles_transitions[etat] = {}
+            for symbole, dest in trans.items():
+                nouvelles_transitions[etat][symbole] = {dest}
+        
+        # Créer l'automate AFND
+        return AFND(
+            alphabet=automate.alphabet,
+            etats=automate.etats,
+            etat_initial=automate.etat_initial,
+            etats_finaux=automate.etats_finaux,
+            transitions=nouvelles_transitions
+        )
+    
+    def liste_etats_utiles(self, automate: Automate) -> list[Etat]:
+        """Retourne tous les états utiles de l'automate (accessibles et coaccessibles)"""
+        accessibles = self.liste_etats_accessibles(automate)
+        coaccessibles = self.liste_etats_coaccessibles(automate)
+        return list(set(accessibles) & set(coaccessibles))
+
+    def liste_etats_accessibles(self, automate: Automate) -> list[Etat]:
+        """Retourne tous les états accessibles depuis l'état initial"""
+        # Ensemble pour suivre les états visités
+        visites = set()
+        # File pour le parcours en largeur (BFS)
+        file = deque([automate.etat_initial])
+        
+        while file:
+            etat = file.popleft()
+            if etat not in visites:
+                visites.add(etat)
+                # Ajouter tous les états voisins non visités
+                if etat in automate.transitions:
+                    for transitions in automate.transitions[etat].values():
+                        for voisin in transitions:
+                            if voisin not in visites:
+                                file.append(voisin)
+        
+        return list(visites)
+
+    def liste_etats_coaccessibles(self, automate: Automate) -> list[Etat]:
+        """Retourne tous les états coaccessibles (qui peuvent atteindre un état final)"""
+        # Construire le graphe inversé (destination → source)
+        graphe_inverse = {etat: [] for etat in automate.etats}
+        
+        for source, transitions in automate.transitions.items():
+            for symbol, destinations in transitions.items():
+                for dest in destinations:
+                    graphe_inverse.setdefault(dest, []).append(source)
+        
+        # Ensemble pour les états coaccessibles
+        coaccessibles = set()
+        # File pour le BFS à partir des états finaux
+        file = deque(automate.etats_finaux)
+        
+        while file:
+            etat = file.popleft()
+            if etat not in coaccessibles:
+                coaccessibles.add(etat)
+                # Ajouter tous les prédécesseurs
+                for predecesseur in graphe_inverse.get(etat, []):
+                    if predecesseur not in coaccessibles:
+                        file.append(predecesseur)
+        
+        return list(coaccessibles)
+
+
+
     def generer_donnees_json(self, automate: Automate) -> str:
         """JSON simplifié avec dict comprehension"""
         data = {
@@ -303,3 +443,7 @@ class GestionnaireOperations:
             ]
         }
         return json.dumps(data)
+
+
+
+
