@@ -441,88 +441,107 @@ class Automate(ABC):
         return automate_concat
 
 
-    '''def miroir(self) -> 'Automate':
+    def miroir(self) -> 'Automate':
         """
         Retourne un automate reconnaissant le miroir (inverse) du langage de self.
+        Ne crée pas de nouvel état initial si un seul état final existe.
         """
-        # Nouveaux états (copie avec noms identiques)
-        nouveaux_etats = {Etat(e.nom, est_initial=False, est_final=False) for e in self.etats}
-        mapping = {e: Etat(e.nom) for e in self.etats}  # mapping ancien->nouveau
 
-        # Nouvel état initial = ancien état final (on suppose un seul ici, sinon ensemble initial)
-        # Ici on peut créer un état initial unique qui pointe par ε vers tous les anciens finaux
-        nouvel_etat_initial = Etat("I", est_initial=True)
-        nouveaux_etats.add(nouvel_etat_initial)
+        # Vérifie s’il y a un seul état final
+        if len(self.etats_finaux) != 1:
+            raise ValueError("Cette version du miroir suppose un seul état final.")
 
-        # Nouveaux états finaux = ancien état initial
-        etats_finaux = {mapping[self.etat_initial]}
+        ancien_initial = self.etat_initial
+        ancien_final = next(iter(self.etats_finaux))
 
-        # Création de l'automate résultat
-        automate_miroir = AFND(
-            alphabet=self.alphabet,
-            etats=nouveaux_etats,
-            etat_initial=nouvel_etat_initial,
-            etats_finaux=etats_finaux
-        )
+        # Création des nouveaux états avec mêmes noms
+        mapping = {etat: Etat(etat.nom) for etat in self.etats}
 
-            # Transitions inversées
+        # Dans le miroir :
+        # - l’ancien final devient initial
+        # - l’ancien initial devient final
+        mapping[ancien_final].est_initial = True
+        mapping[ancien_initial].est_final = True
+
+        # Construire les transitions inversées
+        transitions_inversees = {}
         for e_src, trans in self.transitions.items():
             for symb, dests in trans.items():
                 for e_dst in dests:
-                    # dans miroir, on inverse la direction
-                    automate_miroir.ajouter_transition(mapping[e_dst], symb, mapping[e_src])
+                    src = mapping[e_dst]
+                    dst = mapping[e_src]
+                    if src not in transitions_inversees:
+                        transitions_inversees[src] = {}
+                    if symb not in transitions_inversees[src]:
+                        transitions_inversees[src][symb] = set()
+                    transitions_inversees[src][symb].add(dst)
 
-        # ε-transitions de nouvel état initial vers anciens états finaux
-        for ef in self.etats_finaux:
-            automate_miroir.ajouter_transition(nouvel_etat_initial, '', mapping[ef])
+        # Création de l'automate miroir
+        automate_miroir = AFND(
+            alphabet=self.alphabet,
+            etats=set(mapping.values()),
+            etat_initial=mapping[ancien_final],
+            etats_finaux={mapping[ancien_initial]}
+        )
+        automate_miroir.transitions = transitions_inversees
 
         return automate_miroir
+
+
     
 
     def etoile_kleene(self) -> 'Automate':
         """
-        Retourne l'automate reconnaissant l'étoile de Kleene du langage de self.
+        Retourne un automate reconnaissant l’étoile de Kleene du langage de self.
+        Basé sur la construction de Thompson.
         """
-        from copy import deepcopy
-
-        # Copie et renommage des états
-        map_self = {}
+        # Renommage des états
+        map_etats = {}
         nouveaux_etats = set()
         for e in self.etats:
             nouveau = Etat(f"A_{e.nom}", est_initial=False, est_final=False)
-            map_self[e] = nouveau
+            map_etats[e] = nouveau
             nouveaux_etats.add(nouveau)
 
         nouvel_alphabet = set(self.alphabet)
 
-        # Nouvel état initial et final
-        nouvel_etat_initial = Etat("I", est_initial=True, est_final=True)  # initial et final
+        # Création des nouveaux états initial et final
+        nouvel_initial = Etat("I", est_initial=True)
+        nouvel_final = Etat("F", est_final=True)
+        nouveaux_etats.update({nouvel_initial, nouvel_final})
 
-        nouveaux_etats.add(nouvel_etat_initial)
-
-        automate_etoile = AFND(
+        # Construction de l'automate
+        automate_kleene = AFND(
             alphabet=nouvel_alphabet,
             etats=nouveaux_etats,
-            etat_initial=nouvel_etat_initial,
-            etats_finaux={nouvel_etat_initial}
+            etat_initial=nouvel_initial,
+            etats_finaux={nouvel_final}
         )
 
-        # Ajout des transitions de self
+        # Copier les transitions de l’automate original renommé
         for e_src, trans in self.transitions.items():
-            for symb, dests in trans.items():
+            for symbole, dests in trans.items():
                 for e_dst in dests:
-                    automate_etoile.ajouter_transition(map_self[e_src], symb, map_self[e_dst])
+                    automate_kleene.ajouter_transition(
+                        map_etats[e_src], symbole, map_etats[e_dst]
+                    )
 
-        # ε-transition de nouvel état initial vers ancien état initial (entrée)
-        automate_etoile.ajouter_transition(nouvel_etat_initial, '', map_self[self.etat_initial])
+        # ε-transition du nouvel état initial vers :
+        # - l’ancien état initial (renommé)
+        # - le nouvel état final (pour accepter ε)
+        automate_kleene.ajouter_transition(nouvel_initial, '', map_etats[self.etat_initial])
+        automate_kleene.ajouter_transition(nouvel_initial, '', nouvel_final)
 
-        # ε-transitions des anciens états finaux vers ancien état initial (boucle)
+        # ε-transitions des anciens états finaux renommés vers :
+        # - l’ancien état initial renommé (pour reboucler)
+        # - le nouvel état final
         for ef in self.etats_finaux:
-            automate_etoile.ajouter_transition(map_self[ef], '', map_self[self.etat_initial])
-            # Et ε-transition vers le nouvel état final aussi (qui est initial)
-            automate_etoile.ajouter_transition(map_self[ef], '', nouvel_etat_initial)
+            e_renomme = map_etats[ef]
+            automate_kleene.ajouter_transition(e_renomme, '', map_etats[self.etat_initial])
+            automate_kleene.ajouter_transition(e_renomme, '', nouvel_final)
 
-        return automate_etoile '''
+        return automate_kleene
+
 
 
 
