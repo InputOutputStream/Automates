@@ -213,7 +213,6 @@ function initializeFormListeners() {
     const add_btn = document.getElementById("add-eqn");
     const rm_btn = document.getElementById("rm-eqn");
     const container = document.getElementById("equation-fields");
-    const alphabet = document.getElementById("alphabet");
 
     if (add_btn && container && rm_btn) {
         add_btn.addEventListener("click", () => {
@@ -226,15 +225,15 @@ function initializeFormListeners() {
             container.appendChild(input);
         });
 
-       rm_btn.addEventListener("click", () => {
-        const inputs = container.querySelectorAll("input");
-        if (inputs.length > 0) {  // Add this check
-            const index = inputs.length;
-            const last_input = document.getElementById(`eqn-input-${index}`);
-            if (last_input) container.removeChild(last_input);
-        }
-    });
-    }
+        rm_btn.addEventListener("click", () => {
+            const inputs = container.querySelectorAll("input");
+            if (inputs.length > 0) {
+                const index = inputs.length;
+                const last_input = document.getElementById(`eqn-input-${index}`);
+                if (last_input) container.removeChild(last_input);
+            }
+        });
+}
 
     // Handler for Equation Form Submission
     const eqn_form = document.getElementById('eqn-form');
@@ -244,78 +243,108 @@ function initializeFormListeners() {
             e.stopPropagation();
 
             const automaton = document.getElementById('eqn-automaton-input').value.trim();
+            
+            // Check what input we have
+            const hasAutomaton = automaton !== "";
+            const hasEquations = container && container.querySelectorAll("input").length > 0 && 
+                            Array.from(container.querySelectorAll("input")).some(input => input.value.trim() !== "");
 
-            if (!automaton) {
-                showResult('eqn-result', 'Please enter an automaton before.', 'error');
+            // Validate that only one input type is provided
+            if (hasAutomaton && hasEquations) {
+                showResult('eqn-result', 'Please provide either an automaton OR equations, not both.', 'error');
                 return false;
             }
 
-            // Validate JSON
-            try {
-                JSON.parse(automaton);
-            } catch (error) {
-                showResult('eqn-result', 'Invalid JSON format for automaton.', 'error');
+            if (!hasAutomaton && !hasEquations) {
+                showResult('eqn-result', 'Please provide either an automaton or equations.', 'error');
                 return false;
             }
 
-            showResult('eqn-result', '<div class="loading"></div> Calculating...', 'info');
-
-            // Call API to convert automaton to regex
-            const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'eqn-result');
-
-            if (!response || !response.regex) {
-                showResult('eqn-result', 'Failed to get regex from API.', 'error');
-                return false;
+            // Process Automaton Only
+            if (hasAutomaton && !hasEquations) {
+                return await processAutomaton(automaton);
             }
 
-            const regex = response.regex;
-
-            addToHistory('Automaton To Regex', { automaton }, { regex });
-            showResult('eqn-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
-            animateRecognition(JSON.parse(automaton), regex, 't-graph');
-
-            // Handle Equations
-            if (!container) {
-                showResult('eqn-result', 'Missing equation container.', 'error');
-                return false;
-            }
-
-            if(!alphabet)
-            {
-                showResult('eqn-result', 'Missing Alphabet for equation', 'error');
-                return false;     
-            }
-
-            try {
-                const eqn_list = [];
-                container.querySelectorAll("input").forEach(eqn => {
-                    eqn_list.push(eqn.value.trim());
-                });
-
-                if (eqn_list.length === 0 || eqn_list.some(eq => eq === "")) {
-                    showResult('eqn-result', 'Please fill all equations.', 'error');
-                    return false;
-                }
-
-                const eqnResponse = await makeAPICall('/api/automaton/eqn2regex', {
-                    regex,
-                    equations: eqn_list,
-                    alphabet: alphabet.value.trim()
-                }, 'eqn-result');
-
-                if (eqnResponse) {
-                    addToHistory('Equation To Regex', { regex, equations: eqn_list });
-                    showResult('eqn-result',
-                        `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
-                }
-
-            } catch (error) {
-                showResult('eqn-result', 'Invalid equation input format.', 'error');
+            // Process Equations Only
+            if (hasEquations && !hasAutomaton) {
+                return await processEquations();
             }
 
             return false;
         });
     }
+
+
+    
+// Function to process automaton only
+async function processAutomaton(automaton) {
+    // Validate JSON
+    try {
+        JSON.parse(automaton);
+    } catch (error) {
+        showResult('eqn-result', 'Invalid JSON format for automaton.', 'error');
+        return false;
+    }
+
+    showResult('eqn-result', '<div class="loading"></div> Converting automaton to regex...', 'info');
+
+    // Call API to convert automaton to regex
+    const response = await makeAPICall('/api/automaton/a2regex', { automaton }, 'eqn-result');
+
+    if (!response || !response.regex) {
+        showResult('eqn-result', 'Failed to get regex from API.', 'error');
+        return false;
+    }
+
+    const regex = response.regex;
+
+    addToHistory('Automaton To Regex', { automaton }, { regex });
+    showResult('eqn-result', `<h3>Regex Result:</h3><p>Regex "<strong>${regex}</strong>" is equivalent to the automaton.</p>`);
+    animateRecognition(JSON.parse(automaton), regex, 't-graph');
+
+    return false;
+}
+
+// Function to process equations only
+async function processEquations() {
+    if (!container) {
+        showResult('eqn-result', 'Missing equation container.', 'error');
+        return false;
+    }
+
+    try {
+        const eqn_list = [];
+        container.querySelectorAll("input").forEach(eqn => {
+            const value = eqn.value.trim();
+            if (value !== "") {
+                eqn_list.push(value);
+            }
+        });
+
+        if (eqn_list.length === 0) {
+            showResult('eqn-result', 'Please fill at least one equation.', 'error');
+            return false;
+        }
+
+
+        showResult('eqn-result', '<div class="loading"></div> Solving equations...', 'info');
+
+        const eqnResponse = await makeAPICall('/api/automaton/eqn2regex', {
+            equations: eqn_list,
+        }, 'eqn-result');
+
+        if (eqnResponse) {
+            addToHistory('Equation To Regex', { equations: eqn_list}, eqnResponse);
+            showResult('eqn-result',
+                `<h3>Equation Solve Result:</h3><p><strong>${JSON.stringify(eqnResponse)}</strong></p>`);
+        }
+
+    } catch (error) {
+        showResult('eqn-result', 'Invalid equation input format.', 'error');
+    }
+
+    return false;
+}
 
 }
 
@@ -382,6 +411,8 @@ function hideModal() {
         modal.classList.remove('active');
     }
 }
+
+
 
 function addToHistory(operation, input, output) {
     const timestamp = new Date().toLocaleString();
@@ -477,6 +508,11 @@ function renderGraph(automaton, containerId) {
     }
 
     const elements = [
+        // Dummy start node (for initial state arrow)
+        {
+            data: { id: '__start', label: '', isDummy: true }
+        },
+        // Automaton states
         ...automaton.states.map(state => ({
             data: {
                 id: state,
@@ -485,6 +521,7 @@ function renderGraph(automaton, containerId) {
                 isFinal: automaton.final_states.includes(state)
             }
         })),
+        // Automaton transitions
         ...automaton.transitions.map(t => ({
             data: {
                 id: `${t.source}-${t.symbol}-${t.destination}`,
@@ -492,7 +529,16 @@ function renderGraph(automaton, containerId) {
                 target: t.destination,
                 label: t.symbol
             }
-        }))
+        })),
+        // Ghost edge for initial state
+        {
+            data: {
+                id: '__start-edge',
+                source: '__start',
+                target: automaton.initial_state,
+                label: ''
+            }
+        }
     ];
 
     const cy = cytoscape({
@@ -509,9 +555,21 @@ function renderGraph(automaton, containerId) {
                     'height': 50,
                     'text-valign': 'center',
                     'color': '#fff',
-                    'border-width': 'data(isFinal) ? 3 : 1',
-                    'border-color': 'data(isFinal) ? #ef4444 : #000',
                     'font-size': 12
+                }
+            },
+            {
+                selector: 'node[isFinal]',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#ef4444'
+                }
+            },
+            {
+                selector: 'node[!isFinal]',
+                style: {
+                    'border-width': 1,
+                    'border-color': '#000'
                 }
             },
             {
@@ -534,10 +592,30 @@ function renderGraph(automaton, containerId) {
                 }
             },
             {
+                selector: 'node[isDummy]',
+                style: {
+                    'opacity': 0,
+                    'width': 1,
+                    'height': 1
+                }
+            },
+            {
+                selector: 'edge[source="__start"]',
+                style: {
+                    'line-color': '#22c55e',
+                    'target-arrow-color': '#22c55e',
+                    'width': 2,
+                    'curve-style': 'bezier'
+                }
+            },
+            {
                 selector: '.highlight',
                 style: {
                     'background-color': '#f59e0b',
-                    'line-color': '#f59e0b'
+                    'line-color': '#f59e0b',
+                    'target-arrow-color': '#f59e0b',
+                    'transition-property': 'background-color, line-color',
+                    'transition-duration': '0.3s'
                 }
             }
         ],
@@ -558,7 +636,7 @@ async function animateRecognition(automaton, word, containerId) {
     }
 
     const cy = renderGraph(automaton, containerId);
-    if (!cy) return; 
+    if (!cy) return;
 
     try {
         const response = await fetch('/api/automaton/trace', {
@@ -567,7 +645,7 @@ async function animateRecognition(automaton, word, containerId) {
             body: JSON.stringify({ automaton, word })
         });
 
-        if (!response.ok) { 
+        if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -580,16 +658,22 @@ async function animateRecognition(automaton, word, containerId) {
         let i = 0;
         cy.nodes().removeClass('highlight');
         cy.edges().removeClass('highlight');
-        
+
         currentAnimationInterval = setInterval(() => {
             cy.nodes().removeClass('highlight');
             cy.edges().removeClass('highlight');
+
             if (i < data.path.length) {
-                cy.getElementById(data.path[i].state).addClass('highlight');
+                const curr = data.path[i];
+                cy.getElementById(curr.state).addClass('highlight');
+
                 if (i > 0) {
-                    const edgeId = `${data.path[i-1].state}-${data.path[i].symbol}-${data.path[i].state}`;
-                    cy.getElementById(edgeId).addClass('highlight');
+                    const prev = data.path[i - 1];
+                    const edgeId = `${prev.state}-${curr.symbol}-${curr.state}`;
+                    const edge = cy.getElementById(edgeId);
+                    if (edge) edge.addClass('highlight');
                 }
+
                 i++;
             } else {
                 clearInterval(currentAnimationInterval);
@@ -602,6 +686,7 @@ async function animateRecognition(automaton, word, containerId) {
         showModal(`Error during animation: ${error.message}`, 'error');
     }
 }
+
 
 
 function validateJSON(jsonString, fieldName) {

@@ -53,17 +53,24 @@ class Etat:
         pass
 
     """Surcharge d'operateur"""
+
+    def __eq__(self, other):
+        if not isinstance(other, Etat):
+            return NotImplemented
+        return self.nom == other.nom
+
+    def __hash__(self):
+        return hash(self.nom)
+
     def __str__(self):
         return self.nom
     
     def __repr__(self):
         return f"Etat('{self.nom}')"
     
-    def __eq__(self, other):
-        return isinstance(other, Etat) and self.nom == other.nom
-    
-    def __hash__(self):
-        return hash(self.nom)
+  
+
+        
 
     def est_accessible(self) -> bool:
         """

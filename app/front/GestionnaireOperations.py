@@ -1,12 +1,10 @@
-
-
 from itertools import product
 import json
 from typing import Tuple
 import re
 
 from app.front.RegexParser import RegexParser
-from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND, AD, AutomateMinimal
+from ..Automate import AFND, AFNS, Automate, ADC, AFDC, AND, AD, AutomateMinimal, Canonisation
 from ..Etat import Etat
 from ..LangageReconnaissable import LangageReconnaissable
 
@@ -32,8 +30,11 @@ class GestionnaireOperations:
     def valider_syntaxe(self, regex):
         print("bug here")
         return RegexParser.valider_syntaxe(regex)
-        
-        
+    
+    def canoniser_automate(self, automate: Automate):
+        """ Canonisation d'un automate """
+        return Canonisation.appliquer(automate)
+
     def determiniser_automate(self, automate: AND, type: int=0) -> AD:
         """Déterminise un automate"""
         self.operations_history.append("Déterminisation")
@@ -43,153 +44,41 @@ class GestionnaireOperations:
         """Minimise un automate"""
         step1 = AFDC(autre=automate)
         #result = AutomateMinimal(automate_source=step1)
-        result = step1.minimiser()
+        result = step1.minimiser_optimise()
         self.operations_history.append("Minimisation par fusion")
         return result
+
 
     def completer_automate(self, automate: Automate) -> ADC:
         """Complète un automate"""
         self.operations_history.append("Complétion")
+        
+        # Utilisation du constructeur ADC pour la complétion
         if isinstance(automate, ADC):
             return automate
-        adc = AD(automate.alphabet, automate.etats, automate.etat_initial, automate.etats_finaux)
-        adc.transitions = automate.transitions.copy()
-        adc.completer()
-        return adc
+        
+        # Création directe d'un ADC
+        return ADC(
+            alphabet=automate.alphabet,
+            etats=automate.etats,
+            etat_initial=automate.etat_initial,
+            etats_finaux=automate.etats_finaux
+        )
+
     
     def complementaire_automate(self, automate: AFDC) -> AFDC:
         """Calcule le complémentaire"""
         self.operations_history.append("Complémentation")
         at = AFDC(autre=automate)
         return at.complementaire()
-    
-    def automaton2eqn(self, automaton: Automate):
-        """Convertit un automate en système d'équations"""
-        equations = {}
         
-        for etat in automaton.etats:
-            equation_terms = []
-            
-            # Ajouter epsilon si l'état est final
-            if etat in automaton.etats_finaux:
-                equation_terms.append("ε")
-            
-            # Ajouter les transitions
-            if etat in automaton.transitions:
-                for symbole, destinations in automaton.transitions[etat].items():
-                    for dest in destinations:
-                        if symbole == "":
-                            equation_terms.append(f"X{dest.nom}")
-                        else:
-                            equation_terms.append(f"{symbole}X{dest.nom}")
-            
-            equations[f"X{etat.nom}"] = " + ".join(equation_terms) if equation_terms else "∅"
-        
-        return equations
-
 
     def validate_equations(self, equations: dict) -> Tuple[bool, str]:
-        """
-        Valide un système d'équations avant l'application du lemme d'Arden.
-        
-        Args:
-            equations (dict): Système d'équations {état: expression}
-            
-        Returns:
-            Tuple[bool, str]: (est_valide, message_erreur)
-        """
-        if not equations:
-            return False, "Système d'équations vide"
-        
-        # Vérifier que chaque état a une équation
-        etats = set(equations.keys())
-        
-        # Extraire tous les états référencés dans les expressions
-        etats_references = set()
-        for etat, expression in equations.items():
-            if not isinstance(expression, str):
-                return False, f"Expression invalide pour l'état {etat}"
-            
-            # Extraire les états des termes de la forme "etat.symbole"
-            termes = expression.replace(' ', '').split('+')
-            for terme in termes:
-                if terme and terme != 'ε':
-                    if '.' in terme:
-                        etat_ref = terme.split('.')[0]
-                        etats_references.add(etat_ref)
-                    elif terme in etats:
-                        etats_references.add(terme)
-        
-        # Vérifier que tous les états référencés existent
-        etats_manquants = etats_references - etats
-        if etats_manquants:
-            return False, f"États référencés mais non définis: {etats_manquants}"
-        
-        # Vérifier la forme des équations (détection de récursion directe)
-        for etat, expression in equations.items():
-            # Une équation récursive directe commence par l'état lui-même
-            if expression.startswith(f"{etat}.") or expression.startswith(f"{etat}+"):
-                # Valide pour le lemme d'Arden
-                continue
-            # Vérifier si l'état apparaît dans l'expression (récursion indirecte)
-            elif f"{etat}." in expression or f"+{etat}." in expression:
-                return False, f"Récursion indirecte détectée pour l'état {etat}"
-        
-        # Vérifier la syntaxe des expressions
-        for etat, expression in equations.items():
-            if not self._validate_equation_syntax(expression):
-                return False, f"Syntaxe invalide dans l'équation de {etat}: {expression}"
-        
-        return True, "Système d'équations valide"
-
-    def _validate_equation_syntax(self, expression: str) -> bool:
-        """
-        Valide la syntaxe d'une expression d'équation.
-        
-        Args:
-            expression (str): Expression à valider
-            
-        Returns:
-            bool: True si syntaxe valide
-        """
-        if not expression:
-            return False
-        
-        # Nettoyer l'expression
-        expr = expression.replace(' ', '')
-        
-        # Vérifier les caractères autorisés
-        if not re.match(r'^[a-zA-Z0-9_.+ε|()]+$', expr):
-            return False
-        
-        # Vérifier que l'expression ne commence/finit pas par +
-        if expr.startswith('+') or expr.endswith('+'):
-            return False
-        
-        # Vérifier les termes séparés par +
-        termes = expr.split('+')
-        for terme in termes:
-            if not terme:  # Terme vide (++ dans l'expression)
-                return False
-            
-            # Un terme peut être: ε, état.symbole, ou (expression)
-            if terme == 'ε':
-                continue
-            elif '.' in terme and len(terme.split('.')) == 2:
-                etat, symbole = terme.split('.')
-                if not etat or not symbole:
-                    return False
-            elif terme.startswith('(') and terme.endswith(')'):
-                # Expression parenthésée - validation récursive simplifiée
-                continue
-            elif re.match(r'^[a-zA-Z0-9_]+$', terme):
-                # État simple
-                continue
-            else:
-                return False
-        
-        return True
-
+        from .ValidateurSystemeEquations import ValidateurSystemeEquations
+        validateur = ValidateurSystemeEquations()
+        est_valide, message = validateur.validate_equations(equations)
+        return est_valide, message
+    
 
     def extract_variables(self, equations):
         """Extrait les variables d'un système d'équations"""
@@ -200,332 +89,181 @@ class GestionnaireOperations:
     
     def automaton2reg(self, automaton: Automate):
         """Application du lemme d'arden """
-        equations = self.automaton2eqn(automaton)
-        variables = self.extract_variables(equations)
-
-        return LangageReconnaissable.lemmes_arden(systeme=equations, alphabet=automaton.alphabet, variables=variables)
+        return LangageReconnaissable.arden_dfa_to_regex(automaton)
+    
         
-    def eqn2reg(self, equations, alphabet):
+    def eqn2reg(self, equations):
         """Application du lemme d'arden """
-        variables = self.extract_variables(equations)
-        return LangageReconnaissable.lemmes_arden(systeme=equations, alphabet=alphabet, variables=variables)
+        return LangageReconnaissable.appliquer_lemmes_arden(equations)
                 
 
     def union_automates(self, auto1: Automate, auto2: Automate) -> Automate:
-        """Union de deux automates (corrigée)"""
+        """Union simplifiée - Évite la duplication de code"""
         self.operations_history.append("Union")
         
-        # Créer nouveaux états avec préfixes pour éviter les conflits
-        nouveaux_etats = set()
-        mapping1 = {}
-        mapping2 = {}
+        # Helper pour mapper les états
+        def map_states(automaton, suffix):
+            mapping = {}
+            new_states = set()
+            for e in automaton.etats:
+                new_state = Etat(f"{e.nom}_{suffix}", est_final=e.est_final)
+                new_states.add(new_state)
+                mapping[e] = new_state
+            return mapping, new_states
         
-        for e in auto1.etats:
-            nouvel_etat = Etat(f"{e.nom}_1", est_final=e.est_final)
-            nouveaux_etats.add(nouvel_etat)
-            mapping1[e] = nouvel_etat
-        
-        for e in auto2.etats:
-            nouvel_etat = Etat(f"{e.nom}_2", est_final=e.est_final)
-            nouveaux_etats.add(nouvel_etat)
-            mapping2[e] = nouvel_etat
+        # Mapper les états des deux automates
+        map1, states1 = map_states(auto1, "1")
+        map2, states2 = map_states(auto2, "2")
         
         # Nouvel état initial
         q0 = Etat("q0_union", est_initial=True)
-        nouveaux_etats.add(q0)
+        all_states = states1 | states2 | {q0}
         
-        # États finaux
-        nouveaux_finaux = set()
-        for e in auto1.etats_finaux:
-            nouveaux_finaux.add(mapping1[e])
-        for e in auto2.etats_finaux:
-            nouveaux_finaux.add(mapping2[e])
-
+        # États finaux + q0 si un des initiaux est final
+        final_states = {map1[e] for e in auto1.etats_finaux} | {map2[e] for e in auto2.etats_finaux}
         if auto1.etat_initial in auto1.etats_finaux or auto2.etat_initial in auto2.etats_finaux:
             q0.est_final = True
-            nouveaux_finaux.add(q0)
-      
-        # Créer l'automate
-        automate = AFNS(auto1.alphabet | auto2.alphabet | {""}, nouveaux_etats, q0, nouveaux_finaux)
+            final_states.add(q0)
         
-        # Transitions epsilon vers les états initiaux
-        automate.ajouter_transition(q0, "", mapping1[auto1.etat_initial])
-        automate.ajouter_transition(q0, "", mapping2[auto2.etat_initial])
+        # Créer automate et ajouter transitions
+        result = AFNS(auto1.alphabet | auto2.alphabet | {""}, all_states, q0, final_states)
         
-        # Copier transitions de auto1
-        for e in auto1.etats:
-            if e in auto1.transitions:
-                for symbole, destinations in auto1.transitions[e].items():
+        # Transitions epsilon vers initiaux
+        result.ajouter_transition(q0, "", map1[auto1.etat_initial])
+        result.ajouter_transition(q0, "", map2[auto2.etat_initial])
+        
+        # Copier toutes les transitions
+        for auto, mapping in [(auto1, map1), (auto2, map2)]:
+            for state, transitions in auto.transitions.items():
+                for symbol, destinations in transitions.items():
                     for dest in destinations:
-                        automate.ajouter_transition(mapping1[e], symbole, mapping1[dest])
+                        result.ajouter_transition(mapping[state], symbol, mapping[dest])
         
-        # Copier transitions de auto2
-        for e in auto2.etats:
-            if e in auto2.transitions:
-                for symbole, destinations in auto2.transitions[e].items():
-                    for dest in destinations:
-                        automate.ajouter_transition(mapping2[e], symbole, mapping2[dest])
-        
-        
-        return automate
+        return result
+
 
             
     def intersection_automates(self, auto1: Automate, auto2: Automate) -> Automate:
-        """Intersection de deux automates (version corrigée)"""
+        """Intersection simplifiée - Une seule version optimisée"""
         self.operations_history.append("Intersection")
         
-        # L'alphabet de l'intersection est l'intersection des alphabets
         alphabet_commun = auto1.alphabet & auto2.alphabet
-        
-        # Si pas d'alphabet commun, retourner un automate vide
         if not alphabet_commun:
-            etat_vide = Etat("vide")
-            return AD(set(), {etat_vide}, etat_vide, set())
+            empty_state = Etat("vide")
+            return AD(set(), {empty_state}, empty_state, set())
         
-        # Créer seulement les états accessibles (optimisation)
-        nouveaux_etats = set()
-        mapping = {}
-        etats_a_explorer = [(auto1.etat_initial, auto2.etat_initial)]
-        etats_explores = set()
+        # États et mappings
+        states, finals, mapping = set(), set(), {}
+        queue = [(auto1.etat_initial, auto2.etat_initial)]
+        visited = set()
         
-        # État initial
-        est_final_initial = (auto1.etat_initial in auto1.etats_finaux and 
-                            auto2.etat_initial in auto2.etats_finaux)
-        etat_initial = Etat(f"({auto1.etat_initial.nom},{auto2.etat_initial.nom})", 
-                        est_final=est_final_initial)
-        nouveaux_etats.add(etat_initial)
-        mapping[(auto1.etat_initial, auto2.etat_initial)] = etat_initial
-        
-        nouveaux_finaux = set()
-        if est_final_initial:
-            nouveaux_finaux.add(etat_initial)
-        
-        # Explorer les états accessibles
-        while etats_a_explorer:
-            e1, e2 = etats_a_explorer.pop(0)
-            
-            if (e1, e2) in etats_explores:
-                continue
-            etats_explores.add((e1, e2))
-            
-            etat_source = mapping[(e1, e2)]
-            
-            # Pour chaque symbole de l'alphabet commun
-            for symbole in alphabet_commun:
-                # Vérifier les transitions depuis e1 et e2
-                dest1_set = set()
-                if e1 in auto1.transitions and symbole in auto1.transitions[e1]:
-                    dest1_set = auto1.transitions[e1][symbole]
-                
-                dest2_set = set()
-                if e2 in auto2.transitions and symbole in auto2.transitions[e2]:
-                    dest2_set = auto2.transitions[e2][symbole]
-                
-                # Produit cartésien des destinations
-                for dest1 in dest1_set:
-                    for dest2 in dest2_set:
-                        # Créer l'état destination s'il n'existe pas
-                        if (dest1, dest2) not in mapping:
-                            est_final = (dest1 in auto1.etats_finaux and 
-                                    dest2 in auto2.etats_finaux)
-                            nouvel_etat = Etat(f"({dest1.nom},{dest2.nom})", 
-                                            est_final=est_final)
-                            nouveaux_etats.add(nouvel_etat)
-                            mapping[(dest1, dest2)] = nouvel_etat
-                            
-                            if est_final:
-                                nouveaux_finaux.add(nouvel_etat)
-                            
-                            # Ajouter à la file d'exploration
-                            etats_a_explorer.append((dest1, dest2))
-                        
-                        etat_dest = mapping[(dest1, dest2)]
-                        
-                        # Créer l'automate s'il n'existe pas encore
-                        if 'automate' not in locals():
-                            automate = AD(alphabet_commun, nouveaux_etats, etat_initial, nouveaux_finaux)
-                        
-                        # Ajouter la transition
-                        automate.ajouter_transition(etat_source, symbole, etat_dest)
-        
-        # Si aucune transition n'a été créée, créer l'automate maintenant
-        if 'automate' not in locals():
-            automate = AD(alphabet_commun, nouveaux_etats, etat_initial, nouveaux_finaux)
-        
-        return automate
-
-
-    # Version alternative plus propre
-    def intersection_automates_v2(self, auto1: Automate, auto2: Automate) -> Automate:
-        """Intersection de deux automates - version alternative plus claire"""
-        self.operations_history.append("Intersection")
-        
-        # L'alphabet de l'intersection est l'intersection des alphabets
-        alphabet_commun = auto1.alphabet & auto2.alphabet
-        
-        # Initialisation
-        nouveaux_etats = set()
-        nouveaux_finaux = set()
-        mapping = {}
+        # Helper pour créer un état
+        def create_state(e1, e2):
+            is_final = e1 in auto1.etats_finaux and e2 in auto2.etats_finaux
+            state = Etat(f"({e1.nom},{e2.nom})", est_final=is_final)
+            states.add(state)
+            mapping[(e1, e2)] = state
+            if is_final:
+                finals.add(state)
+            return state
         
         # État initial
-        paire_initiale = (auto1.etat_initial, auto2.etat_initial)
-        est_final_initial = (auto1.etat_initial in auto1.etats_finaux and 
-                            auto2.etat_initial in auto2.etats_finaux)
+        initial = create_state(*queue[0])
+        result = AD(alphabet_commun, states, initial, finals)
         
-        etat_initial = Etat(f"({auto1.etat_initial.nom},{auto2.etat_initial.nom})", 
-                        est_final=est_final_initial)
-        nouveaux_etats.add(etat_initial)
-        mapping[paire_initiale] = etat_initial
-        
-        if est_final_initial:
-            nouveaux_finaux.add(etat_initial)
-        
-        # Créer l'automate
-        automate = AD(alphabet_commun, nouveaux_etats, etat_initial, nouveaux_finaux)
-        
-        # File d'exploration (BFS)
-        file_exploration = [paire_initiale]
-        explores = set()
-        
-        while file_exploration:
-            e1, e2 = file_exploration.pop(0)
-            
-            if (e1, e2) in explores:
+        # BFS pour construction
+        while queue:
+            e1, e2 = queue.pop(0)
+            if (e1, e2) in visited:
                 continue
-            explores.add((e1, e2))
+            visited.add((e1, e2))
             
-            etat_source = mapping[(e1, e2)]
+            source = mapping[(e1, e2)]
             
-            # Explorer les transitions pour chaque symbole commun
-            for symbole in alphabet_commun:
-                # Obtenir les destinations possibles
-                dest1_list = []
-                if e1 in auto1.transitions and symbole in auto1.transitions[e1]:
-                    dest1_list = list(auto1.transitions[e1][symbole])
+            for symbol in alphabet_commun:
+                dests1 = auto1.transitions.get(e1, {}).get(symbol, set())
+                dests2 = auto2.transitions.get(e2, {}).get(symbol, set())
                 
-                dest2_list = []
-                if e2 in auto2.transitions and symbole in auto2.transitions[e2]:
-                    dest2_list = list(auto2.transitions[e2][symbole])
-                
-                # Créer les transitions du produit cartésien
-                for dest1 in dest1_list:
-                    for dest2 in dest2_list:
-                        paire_dest = (dest1, dest2)
-                        
-                        # Créer l'état destination s'il n'existe pas
-                        if paire_dest not in mapping:
-                            est_final = (dest1 in auto1.etats_finaux and 
-                                    dest2 in auto2.etats_finaux)
-                            
-                            etat_dest = Etat(f"({dest1.nom},{dest2.nom})", 
-                                        est_final=est_final)
-                            
-                            nouveaux_etats.add(etat_dest)
-                            automate.etats.add(etat_dest)
-                            mapping[paire_dest] = etat_dest
-                            
-                            if est_final:
-                                nouveaux_finaux.add(etat_dest)
-                                automate.etats_finaux.add(etat_dest)
-                            
-                            # Ajouter à la file d'exploration
-                            file_exploration.append(paire_dest)
-                        
-                        etat_dest = mapping[paire_dest]
-                        automate.ajouter_transition(etat_source, symbole, etat_dest)
+                for d1, d2 in product(dests1, dests2):
+                    if (d1, d2) not in mapping:
+                        create_state(d1, d2)
+                        queue.append((d1, d2))
+                    
+                    result.ajouter_transition(source, symbol, mapping[(d1, d2)])
         
-        return automate
-            
+        return result
+
+    
+                
     def concatenation_automates(self, auto1: Automate, auto2: Automate) -> Automate:
-        """Concaténation de deux automates (corrigée)"""
+        """Concaténation simplifiée"""
         self.operations_history.append("Concaténation")
         
-        # Créer nouveaux états avec préfixes
-        nouveaux_etats = set()
-        mapping1 = {}
-        mapping2 = {}
+        # Helper pour mapper avec suffixes
+        def map_auto(auto, suffix, keep_finals=True):
+            mapping = {}
+            new_states = set()
+            for e in auto.etats:
+                new_state = Etat(f"{e.nom}_{suffix}", est_final=e.est_final if keep_finals else False)
+                new_states.add(new_state)
+                mapping[e] = new_state
+            return mapping, new_states
         
-        for e in auto1.etats:
-            nouvel_etat = Etat(f"{e.nom}_1", est_final=False)  # Pas final pour auto1
-            nouveaux_etats.add(nouvel_etat)
-            mapping1[e] = nouvel_etat
+        map1, states1 = map_auto(auto1, "1", keep_finals=False)
+        map2, states2 = map_auto(auto2, "2", keep_finals=True)
         
-        for e in auto2.etats:
-            nouvel_etat = Etat(f"{e.nom}_2", est_final=e.est_final)
-            nouveaux_etats.add(nouvel_etat)
-            mapping2[e] = nouvel_etat
+        all_states = states1 | states2
+        initial = map1[auto1.etat_initial]
+        finals = {map2[e] for e in auto2.etats_finaux}
         
-        # État initial et finaux
-        etat_initial = mapping1[auto1.etat_initial]
-        nouveaux_finaux = {mapping2[e] for e in auto2.etats_finaux}
+        result = AFNS(auto1.alphabet | auto2.alphabet | {""}, all_states, initial, finals)
         
-        # Créer l'automate
-        automate = AFNS(auto1.alphabet | auto2.alphabet | {""}, nouveaux_etats, etat_initial, nouveaux_finaux)
-        
-        # Copier transitions de auto1
-        for e in auto1.etats:
-            if e in auto1.transitions:
-                for symbole, destinations in auto1.transitions[e].items():
+        # Copier transitions et ajouter epsilon-transitions
+        for auto, mapping in [(auto1, map1), (auto2, map2)]:
+            for state, transitions in auto.transitions.items():
+                for symbol, destinations in transitions.items():
                     for dest in destinations:
-                        automate.ajouter_transition(mapping1[e], symbole, mapping1[dest])
+                        result.ajouter_transition(mapping[state], symbol, mapping[dest])
         
-        # Copier transitions de auto2
-        for e in auto2.etats:
-            if e in auto2.transitions:
-                for symbole, destinations in auto2.transitions[e].items():
-                    for dest in destinations:
-                        automate.ajouter_transition(mapping2[e], symbole, mapping2[dest])
+        # Epsilon des finaux de auto1 vers initial de auto2
+        for final in auto1.etats_finaux:
+            result.ajouter_transition(map1[final], "", map2[auto2.etat_initial])
         
-        # Transitions epsilon des états finaux de auto1 vers l'état initial de auto2
-        for e_final in auto1.etats_finaux:
-            automate.ajouter_transition(mapping1[e_final], "", mapping2[auto2.etat_initial])
-        
-        return automate   
-        
+        return result
+                
     def etoile_automate(self, automate: Automate) -> Automate:
-        """Étoile de Kleene d'un automate (corrigée)"""
+        """Étoile de Kleene simplifiée"""
         self.operations_history.append("Étoile de Kleene")
         
-        # Créer nouveaux états
-        nouveaux_etats = set()
+        # Mapper les états
         mapping = {}
-        
+        new_states = set()
         for e in automate.etats:
-            nouvel_etat = Etat(f"{e.nom}_star", est_final=e.est_final)
-            nouveaux_etats.add(nouvel_etat)
-            mapping[e] = nouvel_etat
+            new_state = Etat(f"{e.nom}_star", est_final=e.est_final)
+            new_states.add(new_state)
+            mapping[e] = new_state
         
-        
-        # Nouvel état initial qui est aussi final (pour ε)
+        # Nouvel état initial (toujours final pour epsilon)
         q0 = Etat("q0_star", est_initial=True, est_final=True)
-        nouveaux_etats.add(q0)
+        new_states.add(q0)
         
-        # États finaux: le nouvel état initial + les anciens états finaux
-        nouveaux_finaux = {q0} | {mapping[e] for e in automate.etats_finaux}
-
-        if automate.etat_initial in automate.etats_finaux:
-            q0.est_final = True
-            nouveaux_finaux.add(q0)
+        finals = {q0} | {mapping[e] for e in automate.etats_finaux}
+        result = AFNS(automate.alphabet | {""}, new_states, q0, finals)
         
-        # Créer l'automate
-        automate_resultat = AFNS(automate.alphabet | {""}, nouveaux_etats, q0, nouveaux_finaux)
+        # Epsilon vers ancien initial
+        result.ajouter_transition(q0, "", mapping[automate.etat_initial])
         
-        # Transition epsilon vers l'ancien état initial
-        automate_resultat.ajouter_transition(q0, "", mapping[automate.etat_initial])
+        # Copier transitions
+        for state, transitions in automate.transitions.items():
+            for symbol, destinations in transitions.items():
+                for dest in destinations:
+                    result.ajouter_transition(mapping[state], symbol, mapping[dest])
         
-        # Copier toutes les transitions
-        for e in automate.etats:
-            if e in automate.transitions:
-                for symbole, destinations in automate.transitions[e].items():
-                    for dest in destinations:
-                        automate_resultat.ajouter_transition(mapping[e], symbole, mapping[dest])
+        # Epsilon des finaux vers initial (répétition)
+        for final in automate.etats_finaux:
+            result.ajouter_transition(mapping[final], "", mapping[automate.etat_initial])
         
-        # Transitions epsilon des états finaux vers l'état initial (pour répétition)
-        for e_final in automate.etats_finaux:
-            automate_resultat.ajouter_transition(mapping[e_final], "", mapping[automate.etat_initial])
-        
-        return automate_resultat
+        return result
         
     def tester_mot(self, automate: Automate, mot: str) -> bool:
         """Test de reconnaissance d'un mot"""
@@ -539,10 +277,9 @@ class GestionnaireOperations:
         auto1_min = self.minimiser_automate(auto1.determinisation_thompson()) if isinstance(auto1, AND) else auto1
         auto2_min = self.minimiser_automate(auto2.determinisation_thompson()) if isinstance(auto2, AND) else auto2
         return auto1_min.etats == auto2_min.etats and auto1_min.transitions == auto2_min.transitions
-    
+        
     def generer_donnees_json(self, automate: Automate) -> str:
-    
-        """Génère les données JSON pour le frontend"""
+        """JSON simplifié avec dict comprehension"""
         data = {
             "alphabet": list(automate.alphabet),
             "etats": [str(e) for e in automate.etats],
@@ -555,5 +292,4 @@ class GestionnaireOperations:
                 for d in dests
             ]
         }
-
         return json.dumps(data)

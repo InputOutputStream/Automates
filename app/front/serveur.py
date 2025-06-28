@@ -21,7 +21,7 @@ class AutomatonServer:
     """
     
     def __init__(self, host='localhost', port=8080, debug=True, auto_open_browser=False):
-        self.app = Flask(__name__)
+        self.app = Flask(__name__, template_folder='templates')  # Add template folder
         CORS(self.app)
         self.host = host
         self.port = port
@@ -29,432 +29,467 @@ class AutomatonServer:
         self.auto_open_browser = auto_open_browser
         self.gestionnaire = GestionnaireOperations()
         self.server_thread = None
-        self._setup_routes()
+        self._setup_routes_simplified()
+        self._debug_routes()
         self._setup_error_handlers()
 
-    def _setup_routes(self):
-        """Setup all API routes"""
+    def _convert_automaton_format(self, data: Dict[str, Any], to_legacy: bool = False) -> Dict[str, Any]:
+        """Conversion bidirectionnelle entre formats legacy et nouveau"""
+        if to_legacy:
+            # Nouveau vers legacy
+            return {
+                'alphabet': data.get('alphabet', []),
+                'etats': data.get('states', []),
+                'etat_initial': data.get('initial_state', ''),
+                'etats_finaux': data.get('final_states', []),
+                'transitions': [
+                    {
+                        'source': t.get('source', ''),
+                        'symbole': t.get('symbol', ''),
+                        'destination': t.get('destination', '')
+                    }
+                    for t in data.get('transitions', [])
+                ]
+            }
+        else:
+            # Legacy vers nouveau
+            return {
+                'alphabet': data.get('alphabet', []),
+                'states': data.get('etats', data.get('states', [])),
+                'initial_state': data.get('etat_initial', data.get('initial_state', '')),
+                'final_states': data.get('etats_finaux', data.get('final_states', [])),
+                'transitions': [
+                    {
+                        'source': t.get('source', ''),
+                        'symbol': t.get('symbole', t.get('symbol', '')),
+                        'destination': t.get('destination', '')
+                    }
+                    for t in data.get('transitions', [])
+                ]
+            }
+    
+    def _setup_binary_routes(self):
+        """Configure les routes pour les opérations binaires"""
+        operations = ['union', 'intersection', 'concatenation']
         
-        @self.app.route('/')
-        def index():
-            """Serve the main interface"""
-            return render_template('index.html')
+        for op in operations:
+            self.app.add_url_rule(
+                f'/api/automaton/{op}',
+                f'{op}_automata',
+                lambda op=op: self._handle_binary_operation(op),
+                methods=['POST']
+            )
 
-        @self.app.route('/api/health', methods=['GET'])
-        def health_check():
-            """Health check endpoint"""
-            return jsonify({
-                'status': 'healthy',
-                'service': 'automaton-server',
-                'version': '2.0.0',
-                'features': ['regex_conversion', 'automaton_operations', 'word_testing', 'equivalence_checking']
-            })
-
-        # Regex operations
-        @self.app.route('/api/regex/convert', methods=['POST'])
-        @self.app.route('/api/regex', methods=['POST'])  # Legacy endpoint
-        def convert_regex():
-            """Convert regex to automaton"""
+    def handle_api_errors(func):
+        """Décorateur pour gérer les erreurs API"""
+        from functools import wraps
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
             try:
-                data = request.get_json()
-                if not data or 'regex' not in data:
-                    return jsonify({'error': 'Missing regex parameter'}), 400
-                
-                regex = data['regex']
-                method = data['method']
-                if not regex.strip():
-                    return jsonify({'error': 'Empty regex provided'}), 400
-                
-                logger.info(f"Converting regex: {regex}")
-                automate = self.gestionnaire.regex_vers_automate(regex, method)
-                result = self._automate_to_dict(automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'message': f'Regex "{regex}" converted successfully'
-                })
+                return func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"Error converting regex: {str(e)}")
+                logger.error(f"Error in {func.__name__}: {str(e)}")
                 logger.error(traceback.format_exc())
-                return jsonify({'error': f'Regex conversion failed: {str(e)}'}), 500
+                return jsonify({'error': f'{func.__name__} failed: {str(e)}'}), 500
+        return wrapper
+    
+    def _debug_routes(self):
+        """Debug: Print all registered routes"""
+        for rule in self.app.url_map.iter_rules():
+            print(f"Route: {rule.rule} -> {rule.endpoint} [{', '.join(rule.methods)}]")
 
-        @self.app.route('/api/regex/validate', methods=['POST'])
-        def validate_regex():
-            """Validate regex syntax"""
-            try:
-                data = request.get_json()
-                if not data or 'regex' not in data:
-                    return jsonify({'error': 'Missing regex parameter'}), 400
-                
-                regex = data['regex']
-                if not regex.strip():
-                    return jsonify({
-                        'valid': False,
-                        'message': 'Empty regex provided'
-                    })
-                
-                is_valid, message = self.gestionnaire.valider_syntaxe(regex)
-                return jsonify({
-                    'valid': is_valid,
-                    'message': message
-                })
-            except Exception as e:
-                logger.error(f"Error validating regex: {str(e)}")
-                return jsonify({'error': f'Regex validation failed: {str(e)}'}), 500
+    def _setup_routes_simplified(self):
+        """Version simplifiée de la configuration des routes"""
+        # Existing routes...
+        routes_config = [
+            ('/', 'index', self._serve_index, ['GET']),
+            ('/api/health', 'health', self._health_check, ['GET']),
+            ('/api/regex/convert', 'convert_regex', self._convert_regex, ['POST']),
+            ('/api/regex/validate', 'validate_regex', self._validate_regex, ['POST']),
+            ('/api/automaton/test', 'test_word', self.test_word_simplified, ['POST']),
+            ('/api/automaton/transform', 'transform', self._transform_automaton, ['POST']),
+            # ADD THESE MISSING ROUTES:
+            ('/api/automaton/kleene', 'kleene_star', self.kleene_star, ['POST']),
+            ('/api/automaton/compare', 'compare_automata', self.compare_automata, ['POST']),
+            ('/api/automaton/export', 'export_automaton', self.export_automaton, ['POST']),
+            ('/api/automaton/trace', 'trace_word', self.trace_word, ['POST']),
+            # In _setup_routes_simplified, change:
+            ('/api/automaton/history', 'get_history', self.get_operations_history, ['GET']),
+            ('/api/automaton/clear-history', 'clear_history', self.clear_operations_history, ['DELETE']),  # Changed to DELETE
+            ('/api/endpoints', 'list_endpoints', self.list_endpoints, ['GET']),
+            ('/api/automaton/eqn2regex', 'eqn2regex', self.eqn2regex, ['POST']),
+            # Legacy support:
+            ('/api/operations', 'legacy_operations', self.legacy_operations, ['POST']),
+        ]
+        
+        for route, endpoint, handler, methods in routes_config:
+            self.app.add_url_rule(route, endpoint, handler, methods=methods)
+        
+        self.app.add_url_rule('/api/automaton/a2regex', 'a2regex_manual', self.a2regex, methods=['POST'])
+        
+        self._setup_binary_routes()
+
+        
+    def _serve_index(self):
+        """Serve the main interface"""
+        return render_template('index.html')
+
+    def _health_check(self):
+        """Health check endpoint"""
+        return jsonify({
+            'status': 'healthy',
+            'service': 'automaton-server',
+            'version': '2.0.0',
+            'features': ['regex_conversion', 'automaton_operations', 'word_testing', 'equivalence_checking']
+        })
+
+     
+
+    # Regex operations
+    def _convert_regex(self):
+        """Convert regex to automaton"""
+        try:
+            data = request.get_json()
+            if not data or 'regex' not in data:
+                return jsonify({'error': 'Missing regex parameter'}), 400
             
-        @self.app.route('/api/automaton/a2regex', methods=['POST'])          
-        @self.app.route('/api/a2regex', methods=['POST'])
-        def a2regex():
-            """From automaton to regex using Arden Lemma"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data:
-                    # Support legacy format
-                    if 'automate' in data:
-                        data['automaton'] = data['automate']
-                    else:
-                        return jsonify({'error': 'Missing automaton or operation parameter'}), 400
-                
-                # Handle legacy JSON string format
-                automaton_data = data['automaton']
-                if isinstance(automaton_data, str):
-                    automaton_data = json.loads(automaton_data)
-                
-                if not self._validate_automaton_structure(automaton_data):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(automaton_data)
-                
-                logger.info(f"Solving Automaton")
-                
-                result = self.gestionnaire.automaton2eqn(automate)
+            regex = data['regex']
+            method = data['method']
+            if not regex.strip():
+                return jsonify({'error': 'Empty regex provided'}), 400
+            
+            logger.info(f"Converting regex: {regex}")
+            automate = self.gestionnaire.regex_vers_automate(regex, method)
+            result = self._automate_to_dict(automate)
+            
+            return jsonify({
+                'success': True,
+                'automaton': result,
+                'message': f'Regex "{regex}" converted successfully'
+            })
+        except Exception as e:
+            logger.error(f"Error converting regex: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Regex conversion failed: {str(e)}'}), 500
+
+    def _validate_regex(self):
+        """Validate regex syntax"""
+        try:
+            data = request.get_json()
+            if not data or 'regex' not in data:
+                return jsonify({'error': 'Missing regex parameter'}), 400
+            
+            regex = data['regex']
+            if not regex.strip():
                 return jsonify({
-                    'success': True,
-                    'regex': result,
-                    'message': f'Operation completed successfully'
+                    'valid': False,
+                    'message': 'Empty regex provided'
                 })
-            except Exception as e:
-                logger.error(f"Error transforming automaton: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
+            
+            is_valid, message = self.gestionnaire.valider_syntaxe(regex)
+            return jsonify({
+                'valid': is_valid,
+                'message': message
+            })
+        except Exception as e:
+            logger.error(f"Error validating regex: {str(e)}")
+            return jsonify({'error': f'Regex validation failed: {str(e)}'}), 500
+        
+    @handle_api_errors 
+    def a2regex(self):
+        """From automaton to regex using Arden Lemma"""
+        """
+            Doit retouner la regex vers l'api mais actu ne le fais pas encore
+            de plus le lemme d'arden ne marche pas donc
+        """
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data:
+                # Support legacy format
+                if 'automate' in data:
+                    data['automaton'] = data['automate']
+                else:
+                    return jsonify({'error': 'Missing automaton or operation parameter'}), 400
+            
+            # Handle legacy JSON string format
+            automaton_dict = data['automaton']
+            if isinstance(automaton_dict, str):
+                automaton_dict = json.loads(automaton_dict)
+            
+            if not self._validate_automaton_structure(automaton_dict):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
 
+            logger.info(f"Solving Automaton")
+            
+            result = self.gestionnaire.automaton2reg(automaton_dict)
 
+            return jsonify({
+                'success': True,
+                'regex': result,
+                'message': f'Operation completed successfully'
+            })
+        except Exception as e:
+            logger.error(f"Error transforming automaton: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
 
-
-        @self.app.route('/api/automaton/eqn2regex', methods=['POST'])
-        @self.app.route('/api/eqn2regex', methods=['POST'])  # Legacy endpoint
-        def eqn2regex():
-            """From equations to regex using Arden Lemma"""
-            try:
-                data = request.get_json()
-                if not data or 'equations' not in data:
-                    # Support legacy format
-                    if 'equations' in data:
-                        data['equations'] = data['equations']
-                    else:
-                        return jsonify({'error': 'Missing equation or operation parameter'}), 400
-                
-                equations = data['equations']
-                alphabet = data['alphabet']
-
-                equations = dict(equations)
-                
-                if not self.gestionnaire.validate_equations(equations):
-                    return jsonify({'error': 'Invalid equations format structure'}), 400
-                
-                result = self.gestionnaire.eqn2reg(equations, alphabet)
-                logger.info(f"Solving Equations")
-                
-            except Exception as e:
-                logger.error(f"Error solving eqn systeme: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
+    @handle_api_errors
+    def eqn2regex(self):
+        """From equations to regex using Arden Lemma"""
+        """
+            Doit retouner la regex vers l'api mais actu ne le fais pas encore
+        """
+        try:
+            data = request.get_json()
+            if not data or 'equations' not in data:
+                # Support legacy format
+                if 'equations' in data:
+                    data['equations'] = data['equations']
+                else:
+                    return jsonify({'error': 'Missing equation or operation parameter'}), 400
+            
+            equations = data['equations']
+            
+            if not self.gestionnaire.validate_equations(equations):
+                return jsonify({'error': 'Invalid equations format structure'}), 400
+            
+            result = self.gestionnaire.eqn2reg(equations)
+            logger.info(f"Solving Equations")
+        
+            return jsonify({
+                'success': True,
+                'regex': result,
+                'message': 'Equations solved successfully'
+            })
+        
+        except Exception as e:
+            logger.error(f"Error solving eqn systeme: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Resolution failed: {str(e)}'}), 500
 
 
 
         # Single automaton operations
-        @self.app.route('/api/automaton/transform', methods=['POST'])
-        @self.app.route('/api/transformer', methods=['POST'])  # Legacy endpoint
-        def transform_automaton():
-            """Transform automaton (determinize, minimize, complete, complement)"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data or 'operation' not in data:
-                    # Support legacy format
-                    if 'automate' in data:
-                        data['automaton'] = data['automate']
-                    else:
-                        return jsonify({'error': 'Missing automaton or operation parameter'}), 400
-                
-                # Handle legacy JSON string format
-                automaton_data = data['automaton']
-                if isinstance(automaton_data, str):
-                    automaton_data = json.loads(automaton_data)
-                
-                if not self._validate_automaton_structure(automaton_data):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(automaton_data)
-                operation = data['operation']
-                
-                logger.info(f"Performing operation: {operation}")
-                
-                if operation == 'determinize' or operation == 'determiniser':
-                    result_automate = self.gestionnaire.determiniser_automate(automate)
-                elif operation == 'minimize' or operation == 'minimiser':
-                    result_automate = self.gestionnaire.minimiser_automate(automate)
-                elif operation == 'complete' or operation == 'completer':
-                    result_automate = self.gestionnaire.completer_automate(automate)
-                elif operation == 'complement' or operation == 'complementaire':
-                    result_automate = self.gestionnaire.complementaire_automate(automate)
+    def _transform_automaton(self):
+        """Transform automaton (determinize, minimize, complete, complement)"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data or 'operation' not in data:
+                # Support legacy format
+                if 'automate' in data:
+                    data['automaton'] = data['automate']
                 else:
-                    return jsonify({'error': f'Unknown operation: {operation}'}), 400
-                
-                result_automate.afficher()
-                result = self._automate_to_dict(result_automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'operation': operation,
-                    'message': f'Operation "{operation}" completed successfully'
-                })
-            except Exception as e:
-                logger.error(f"Error transforming automaton: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Transformation failed: {str(e)}'}), 500
+                    return jsonify({'error': 'Missing automaton or operation parameter'}), 400
+            
+            # Handle legacy JSON string format
+            automaton_data = data['automaton']
+            if isinstance(automaton_data, str):
+                automaton_data = json.loads(automaton_data)
+            
+            if not self._validate_automaton_structure(automaton_data):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            automate = self._dict_to_automate(automaton_data)
+            operation = data['operation']
+            
+            logger.info(f"Performing operation: {operation}")
+            
+            if operation == 'determinize' or operation == 'determiniser':
+                result_automate = self.gestionnaire.determiniser_automate(automate)
+            elif operation == 'minimize' or operation == 'minimiser':
+                result_automate = self.gestionnaire.minimiser_automate(automate)
+            elif operation == 'complete' or operation == 'completer':
+                result_automate = self.gestionnaire.completer_automate(automate)
+            elif operation == 'complement' or operation == 'complementaire':
+                result_automate = self.gestionnaire.complementaire_automate(automate)
+            elif operation == 'canoniser' or operation == "canonizer":
+                result_automate = self.gestionnaire.canoniser_automate(automate)
+            else:
+                return jsonify({'error': f'Unknown operation: {operation}'}), 400
+            
+            result_automate.afficher()
+            result = self._automate_to_dict(result_automate)
+            
+            return jsonify({
+                'success': True,
+                'automaton': result,
+                'operation': operation,
+                'message': f'Operation "{operation}" completed successfully'
+            })
+        except Exception as e:
+            logger.error(f"Error transforming automaton: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Transformation failed: {str(e)}'}), 500
 
-        # Binary automaton operations
-        @self.app.route('/api/automaton/union', methods=['POST'])
-        def union_automata():
-            """Union of two automata"""
-            return self._binary_operation('union')
+    # Binary automaton operations
+    def union_automata(self):
+        """Union of two automata"""
+        return self._binary_operation('union')
 
-        @self.app.route('/api/automaton/intersection', methods=['POST'])
-        def intersection_automata():
-            """Intersection of two automata"""
-            return self._binary_operation('intersection')
+    def intersection_automata(self):
+        """Intersection of two automata"""
+        return self._binary_operation('intersection')
 
-        @self.app.route('/api/automaton/concatenation', methods=['POST'])
-        def concatenation_automata():
-            """Concatenation of two automata"""
-            return self._binary_operation('concatenation')
+    def concatenation_automata(self):
+        """Concatenation of two automata"""
+        return self._binary_operation('concatenation')
 
-        @self.app.route('/api/operations', methods=['POST'])  # Legacy endpoint
-        def legacy_operations():
-            """Legacy endpoint for binary operations"""
-            try:
-                data = request.get_json()
-                if not data or 'automate1' not in data or 'automate2' not in data or 'operation' not in data:
-                    return jsonify({'error': 'Missing required parameters'}), 400
+    def legacy_operations(self):
+        """Legacy endpoint for binary operations"""
+        try:
+            data = request.get_json()
+            if not data or 'automate1' not in data or 'automate2' not in data or 'operation' not in data:
+                return jsonify({'error': 'Missing required parameters'}), 400
+            
+            # Convert to new format
+            new_data = {
+                'automaton1': data['automate1'] if isinstance(data['automate1'], dict) else json.loads(data['automate1']),
+                'automaton2': data['automate2'] if isinstance(data['automate2'], dict) else json.loads(data['automate2'])
+            }
+            
+            operation = data['operation']
+            if operation == 'union':
+                return self._binary_operation_with_data('union', new_data)
+            elif operation == 'intersection':
+                return self._binary_operation_with_data('intersection', new_data)
+            elif operation == 'concatenation':
+                return self._binary_operation_with_data('concatenation', new_data)
+            else:
+                return jsonify({'error': f'Unknown operation: {operation}'}), 400
                 
-                # Convert to new format
-                new_data = {
-                    'automaton1': data['automate1'] if isinstance(data['automate1'], dict) else json.loads(data['automate1']),
-                    'automaton2': data['automate2'] if isinstance(data['automate2'], dict) else json.loads(data['automate2'])
-                }
-                
-                operation = data['operation']
-                if operation == 'union':
-                    return self._binary_operation_with_data('union', new_data)
-                elif operation == 'intersection':
-                    return self._binary_operation_with_data('intersection', new_data)
-                elif operation == 'concatenation':
-                    return self._binary_operation_with_data('concatenation', new_data)
-                else:
-                    return jsonify({'error': f'Unknown operation: {operation}'}), 400
-                    
-            except Exception as e:
-                logger.error(f"Error in legacy operations: {str(e)}")
-                return jsonify({'error': f'Operation failed: {str(e)}'}), 500
+        except Exception as e:
+            logger.error(f"Error in legacy operations: {str(e)}")
+            return jsonify({'error': f'Operation failed: {str(e)}'}), 500
 
-        @self.app.route('/api/automaton/kleene', methods=['POST'])
-        def kleene_star():
-            """Kleene star of automaton"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data:
-                    return jsonify({'error': 'Missing automaton parameter'}), 400
-                
-                if not self._validate_automaton_structure(data['automaton']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(data['automaton'])
-                result_automate = self.gestionnaire.etoile_automate(automate)
-                result = self._automate_to_dict(result_automate)
-                
-                return jsonify({
-                    'success': True,
-                    'automaton': result,
-                    'operation': 'kleene_star',
-                    'message': 'Kleene star completed successfully'
-                })
-            except Exception as e:
-                logger.error(f"Error in kleene star operation: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Kleene star operation failed: {str(e)}'}), 500
+    def kleene_star(self):
+        """Kleene star of automaton"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data:
+                return jsonify({'error': 'Missing automaton parameter'}), 400
+            
+            if not self._validate_automaton_structure(data['automaton']):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            automate = self._dict_to_automate(data['automaton'])
+            result_automate = self.gestionnaire.etoile_automate(automate)
+            result = self._automate_to_dict(result_automate)
+            
+            return jsonify({
+                'success': True,
+                'automaton': result,
+                'operation': 'kleene_star',
+                'message': 'Kleene star completed successfully'
+            })
+        except Exception as e:
+            logger.error(f"Error in kleene star operation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Kleene star operation failed: {str(e)}'}), 500
 
         # Word testing
-        @self.app.route('/api/automaton/test', methods=['POST'])
-        @self.app.route('/api/tester', methods=['POST'])  # Legacy endpoint
-        def test_word():
-            """Test word acceptance"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data or 'word' not in data:
-                    # Support legacy format
-                    if 'automate' in data and 'mot' in data:
-                        data['automaton'] = data['automate']
-                        data['word'] = data['mot']
-                    else:
-                        return jsonify({'error': 'Missing automaton or word parameter'}), 400
-                
-                # Handle legacy JSON string format
-                automaton_data = data['automaton']
-                if isinstance(automaton_data, str):
-                    automaton_data = json.loads(automaton_data)
-                
-                if not self._validate_automaton_structure(automaton_data):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(automaton_data)
-                word = data['word']
-                
-                # Handle empty word case
-                if word == '':
-                    logger.info("Testing empty word")
-                
-                accepted = self.gestionnaire.tester_mot(automate, word)
-                
-                print("est sorti ??")
+    @handle_api_errors
+    def test_word_simplified(self):
+        """Version simplifiée du test de mot"""
+        data = self._get_json_data(['automaton', 'word'])
+        
+        # Support format legacy
+        if 'automate' in data and 'mot' in data:
+            data['automaton'] = data['automate']
+            data['word'] = data['mot']
+        
+        if not self._validate_automaton_structure(data['automaton']):
+            return self._create_error_response('Invalid automaton structure')
+        
+        automate = self._dict_to_automate(data['automaton'])
+        word = data['word']
+        accepted = self.gestionnaire.tester_mot(automate, word)
+        
+        return jsonify(self._create_success_response({
+            'accepted': accepted,
+            'result': accepted,  # Support legacy
+            'word': word
+        }, f'Word "{word}" {"accepted" if accepted else "rejected"}'))
+
+
+    def compare_automata(self):
+        """Compare automata equivalence"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton1' not in data or 'automaton2' not in data:
+                return jsonify({'error': 'Missing automaton parameters'}), 400
+            
+            if not self._validate_automaton_structure(data['automaton1']) or \
+                not self._validate_automaton_structure(data['automaton2']):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            auto1 = self._dict_to_automate(data['automaton1'])
+            auto2 = self._dict_to_automate(data['automaton2'])
+            equivalent = self.gestionnaire.tester_equivalence(auto1, auto2)
+            
+            return jsonify({
+                'success': True,
+                'equivalent': equivalent,
+                'message': f'Automata are {"equivalent" if equivalent else "not equivalent"}'
+            })
+        except Exception as e:
+            logger.error(f"Error comparing automata: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Comparison failed: {str(e)}'}), 500
+
+    def export_automaton(self):
+        """Export automaton in various formats"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data or 'format' not in data:
+                return jsonify({'error': 'Missing automaton or format parameter'}), 400
+            
+            if not self._validate_automaton_structure(data['automaton']):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            automate = self._dict_to_automate(data['automaton'])
+            export_format = data['format']
+            filename = data.get('filename', 'automaton')
+            
+            if export_format == 'json':
+                result = self.gestionnaire.generer_donnees_json(automate)
                 return jsonify({
                     'success': True,
-                    'accepted': accepted,
-                    'result': accepted,  # Legacy format support
-                    'word': word,
-                    'message': f'Word "{word}" {"accepted" if accepted else "rejected"}'
+                    'format': 'json',
+                    'data': json.loads(result),
+                    'filename': f'{filename}.json'
                 })
-            except Exception as e:
-                logger.error(f"Error testing word: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Word test failed: {str(e)}'}), 500
+            elif export_format == 'dot':
+                return jsonify({'error': 'DOT export not yet implemented'}), 501
+            elif export_format == 'latex':
+                return jsonify({'error': 'LaTeX export not yet implemented'}), 501
+            else:
+                return jsonify({'error': f'Unknown format: {export_format}'}), 400
+        except Exception as e:
+            logger.error(f"Error exporting automaton: {str(e)}")
+            return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
-        @self.app.route('/api/automaton/compare', methods=['POST'])
-        def compare_automata():
-            """Compare automata equivalence"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton1' not in data or 'automaton2' not in data:
-                    return jsonify({'error': 'Missing automaton parameters'}), 400
-                
-                if not self._validate_automaton_structure(data['automaton1']) or \
-                   not self._validate_automaton_structure(data['automaton2']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                auto1 = self._dict_to_automate(data['automaton1'])
-                auto2 = self._dict_to_automate(data['automaton2'])
-                equivalent = self.gestionnaire.tester_equivalence(auto1, auto2)
-                
-                return jsonify({
-                    'success': True,
-                    'equivalent': equivalent,
-                    'message': f'Automata are {"equivalent" if equivalent else "not equivalent"}'
-                })
-            except Exception as e:
-                logger.error(f"Error comparing automata: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Comparison failed: {str(e)}'}), 500
-
-        @self.app.route('/api/automaton/export', methods=['POST'])
-        def export_automaton():
-            """Export automaton in various formats"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data or 'format' not in data:
-                    return jsonify({'error': 'Missing automaton or format parameter'}), 400
-                
-                if not self._validate_automaton_structure(data['automaton']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(data['automaton'])
-                export_format = data['format']
-                filename = data.get('filename', 'automaton')
-                
-                if export_format == 'json':
-                    result = self.gestionnaire.generer_donnees_json(automate)
-                    return jsonify({
-                        'success': True,
-                        'format': 'json',
-                        'data': json.loads(result),
-                        'filename': f'{filename}.json'
-                    })
-                elif export_format == 'dot':
-                    return jsonify({'error': 'DOT export not yet implemented'}), 501
-                elif export_format == 'latex':
-                    return jsonify({'error': 'LaTeX export not yet implemented'}), 501
-                else:
-                    return jsonify({'error': f'Unknown format: {export_format}'}), 400
-            except Exception as e:
-                logger.error(f"Error exporting automaton: {str(e)}")
-                return jsonify({'error': f'Export failed: {str(e)}'}), 500
-
-        @self.app.route('/api/automaton/trace', methods=['POST'])
-        def trace_word():
-            """Trace word recognition through automaton"""
-            try:
-                data = request.get_json()
-                if not data or 'automaton' not in data or 'word' not in data:
-                    return jsonify({'error': 'Missing automaton or word parameter'}), 400
-                
-                if not self._validate_automaton_structure(data['automaton']):
-                    return jsonify({'error': 'Invalid automaton structure'}), 400
-                
-                automate = self._dict_to_automate(data['automaton'])
-                word = data['word']
-                
-                # Build execution path
-                path = []
-                current = automate.etat_initial
-                path.append({'state': str(current)})
-                
-                # Handle empty word case
-                if word == '':
-                    accepted = current in automate.etats_finaux
-                    return jsonify({
-                        'success': True,
-                        'path': path,
-                        'accepted': accepted,
-                        'word': word
-                    })
-                
-                # Process each symbol
-                for i, sym in enumerate(word):
-                    if current in automate.transitions and sym in automate.transitions[current]:
-                        destinations = automate.transitions[current][sym]
-                        if destinations:
-                            # Take first available transition (for deterministic behavior)
-                            current = next(iter(destinations))
-                            path.append({'state': str(current), 'symbol': sym})
-                        else:
-                            # No valid transition
-                            return jsonify({
-                                'success': True,
-                                'path': path,
-                                'accepted': False,
-                                'word': word,
-                                'error': f'No transition for symbol "{sym}" from state "{current}"'
-                            })
-                    else:
-                        # No transition defined for this symbol from current state
-                        return jsonify({
-                            'success': True,
-                            'path': path,
-                            'accepted': False,
-                            'word': word,
-                            'error': f'No transition for symbol "{sym}" from state "{current}"'
-                        })
-                
+    def trace_word(self):
+        """Trace word recognition through automaton"""
+        try:
+            data = request.get_json()
+            if not data or 'automaton' not in data or 'word' not in data:
+                return jsonify({'error': 'Missing automaton or word parameter'}), 400
+            
+            if not self._validate_automaton_structure(data['automaton']):
+                return jsonify({'error': 'Invalid automaton structure'}), 400
+            
+            automate = self._dict_to_automate(data['automaton'])
+            word = data['word']
+            
+            # Build execution path
+            path = []
+            current = automate.etat_initial
+            path.append({'state': str(current)})
+            
+            # Handle empty word case
+            if word == '':
                 accepted = current in automate.etats_finaux
                 return jsonify({
                     'success': True,
@@ -462,49 +497,83 @@ class AutomatonServer:
                     'accepted': accepted,
                     'word': word
                 })
-                
-            except Exception as e:
-                logger.error(f"Error tracing word: {str(e)}")
-                logger.error(traceback.format_exc())
-                return jsonify({'error': f'Word tracing failed: {str(e)}'}), 500
-
-        # History and utility endpoints
-        @self.app.route('/api/automaton/history', methods=['GET'])
-        def get_operations_history():
-            """Get operations history"""
-            try:
-                return jsonify({
-                    'success': True,
-                    'history': self.gestionnaire.operations_history
-                })
-            except Exception as e:
-                logger.error(f"Error getting history: {str(e)}")
-                return jsonify({'error': f'Failed to get history: {str(e)}'}), 500
-
-        @self.app.route('/api/automaton/clear-history', methods=['POST'])
-        def clear_operations_history():
-            """Clear operations history"""
-            try:
-                self.gestionnaire.operations_history.clear()
-                return jsonify({
-                    'success': True,
-                    'message': 'Operations history cleared'
-                })
-            except Exception as e:
-                logger.error(f"Error clearing history: {str(e)}")
-                return jsonify({'error': f'Failed to clear history: {str(e)}'}), 500
-
-        # API endpoints listing
-        @self.app.route('/api/endpoints', methods=['GET'])
-        def list_endpoints():
-            """List all available API endpoints"""
-            endpoints = self.generer_api_endpoints()
+            
+            # Process each symbol
+            for i, sym in enumerate(word):
+                if current in automate.transitions and sym in automate.transitions[current]:
+                    destinations = automate.transitions[current][sym]
+                    if destinations:
+                        # Take first available transition (for deterministic behavior)
+                        current = next(iter(destinations))
+                        path.append({'state': str(current), 'symbol': sym})
+                    else:
+                        # No valid transition
+                        return jsonify({
+                            'success': True,
+                            'path': path,
+                            'accepted': False,
+                            'word': word,
+                            'error': f'No transition for symbol "{sym}" from state "{current}"'
+                        })
+                else:
+                    # No transition defined for this symbol from current state
+                    return jsonify({
+                        'success': True,
+                        'path': path,
+                        'accepted': False,
+                        'word': word,
+                        'error': f'No transition for symbol "{sym}" from state "{current}"'
+                    })
+            
+            accepted = current in automate.etats_finaux
             return jsonify({
                 'success': True,
-                'endpoints': list(endpoints.keys()),
-                'total': len(endpoints)
+                'path': path,
+                'accepted': accepted,
+                'word': word
             })
+            
+        except Exception as e:
+            logger.error(f"Error tracing word: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Word tracing failed: {str(e)}'}), 500
 
+        # History and utility endpoints
+    def get_operations_history(self):
+        """Get operations history"""
+        try:
+            return jsonify({
+                'success': True,
+                'history': self.gestionnaire.operations_history
+            })
+        except Exception as e:
+            logger.error(f"Error getting history: {str(e)}")
+            return jsonify({'error': f'Failed to get history: {str(e)}'}), 500
+
+    def clear_operations_history(self):
+        """Clear operations history"""
+        try:
+            self.gestionnaire.operations_history.clear()
+            return jsonify({
+                'success': True,
+                'message': 'Operations history cleared'
+            })
+        except Exception as e:
+            logger.error(f"Error clearing history: {str(e)}")
+            return jsonify({'error': f'Failed to clear history: {str(e)}'}), 500
+
+        # API endpoints listing
+    @handle_api_errors
+    def list_endpoints(self):
+        """List all available API endpoints"""
+        endpoints = self.generer_api_endpoints()
+        return jsonify({
+            'success': True,
+            'endpoints': list(endpoints.keys()),
+            'total': len(endpoints)
+        })
+    
+    @handle_api_errors
     def _setup_error_handlers(self):
         """Setup error handlers"""
         @self.app.errorhandler(404)
@@ -520,6 +589,7 @@ class AutomatonServer:
             logger.error(f"Internal server error: {str(error)}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @handle_api_errors
     def _binary_operation(self, operation: str):
         """Helper method for binary operations"""
         try:
@@ -530,6 +600,7 @@ class AutomatonServer:
             logger.error(traceback.format_exc())
             return jsonify({'error': f'{operation.title()} operation failed: {str(e)}'}), 500
 
+    @handle_api_errors
     def _binary_operation_with_data(self, operation: str, data: dict):
         """Execute binary operation with given data"""
         if not data or 'automaton1' not in data or 'automaton2' not in data:
@@ -561,89 +632,47 @@ class AutomatonServer:
             'message': f'{operation.title()} completed successfully'
         })
 
+    @handle_api_errors
     def _validate_automaton_structure(self, data: Dict[str, Any]) -> bool:
-        """Validate that the automaton data has the required structure"""
+        """Version simplifiée de la validation"""
         try:
-            # Handle legacy format conversion
+            # Conversion automatique du format legacy
             if 'etats' in data:
                 data = self._convert_legacy_format(data)
             
-            required_fields = ['alphabet', 'states', 'initial_state', 'final_states', 'transitions']
-            
-            # Check all required fields exist
-            for field in required_fields:
-                if field not in data:
-                    logger.error(f"Missing required field: {field}")
-                    return False
-            
-            # Validate types
-            if not isinstance(data['alphabet'], list):
-                logger.error("Alphabet must be a list")
+            # Vérification des champs requis
+            required = ['alphabet', 'states', 'initial_state', 'final_states', 'transitions']
+            if not all(field in data for field in required):
                 return False
             
-            if not isinstance(data['states'], list):
-                logger.error("States must be a list")
-                return False
-            
-            if not isinstance(data['initial_state'], str):
-                logger.error("Initial state must be a string")
-                return False
-            
-            if not isinstance(data['final_states'], list):
-                logger.error("Final states must be a list")
-                return False
-            
-            if not isinstance(data['transitions'], list):
-                logger.error("Transitions must be a list")
-                return False
-            
-            # Validate initial state exists in states
-            if data['initial_state'] not in data['states']:
-                logger.error("Initial state not in states list")
-                return False
-            
-            # Validate final states exist in states
-            for final_state in data['final_states']:
-                if final_state not in data['states']:
-                    logger.error(f"Final state {final_state} not in states list")
-                    return False
-            
-            # Validate transition structure
-            for transition in data['transitions']:
-                if not isinstance(transition, dict):
-                    logger.error("Each transition must be a dictionary")
-                    return False
-                
-                # Support both formats
-                required_trans_fields = ['source', 'destination']
-                symbol_field = 'symbol' if 'symbol' in transition else 'symbole'
-                
-                for field in required_trans_fields + [symbol_field]:
-                    if field not in transition:
-                        logger.error(f"Transition missing field: {field}")
-                        return False
-                
-                # Validate transition states exist
-                if transition['source'] not in data['states']:
-                    logger.error(f"Transition source {transition['source']} not in states")
-                    return False
-                
-                if transition['destination'] not in data['states']:
-                    logger.error(f"Transition destination {transition['destination']} not in states")
-                    return False
-                
-                # Validate symbol is in alphabet
-                symbol = transition[symbol_field]
-                if symbol != '' and symbol not in data['alphabet']:
-                    logger.error(f"Transition symbol {symbol} not in alphabet")
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error validating automaton structure: {str(e)}")
+            # Vérifications de base
+            states_set = set(data['states'])
+            return (
+                len(data['states']) == len(states_set) and  # États uniques
+                data['initial_state'] in states_set and     # État initial valide
+                all(fs in states_set for fs in data['final_states']) and  # États finaux valides
+                all(self._is_valid_transition(t, states_set, data['alphabet']) for t in data['transitions'])
+            )
+        except:
+            return False
+        
+    @handle_api_errors    
+    def _is_valid_transition(self, transition: dict, states: set, alphabet: list) -> bool:
+        """Valide une transition individuelle"""
+        symbol_field = 'symbol' if 'symbol' in transition else 'symbole'
+        required_fields = ['source', 'destination', symbol_field]
+
+        if not all(field in transition for field in required_fields):
             return False
 
+        symbol = transition[symbol_field]
+        return (
+            transition['source'] in states and
+            transition['destination'] in states and
+            (symbol == '' or symbol in alphabet)
+        )
+
+    @handle_api_errors
     def _convert_legacy_format(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Convert legacy format to new format"""
         return {
@@ -661,6 +690,7 @@ class AutomatonServer:
             ]
         }
 
+    @handle_api_errors
     def _automate_to_dict(self, automate: Automate) -> Dict[str, Any]:
         """Convert Automate object to dictionary format expected by client"""
         return {
@@ -679,6 +709,73 @@ class AutomatonServer:
                 for dest in destinations
             ]
         }
+    
+
+    
+    @handle_api_errors
+    def _validate_binary_request(self, data: dict) -> bool:
+        """Valide une requête d'opération binaire"""
+        return (
+            data and 
+            'automaton1' in data and 
+            'automaton2' in data and
+            self._validate_automaton_structure(data['automaton1']) and
+            self._validate_automaton_structure(data['automaton2'])
+        )
+    
+    def _handle_binary_operation(self, operation_name: str):
+        """Gestionnaire unifié pour toutes les opérations binaires"""
+        data = request.get_json()
+        if not self._validate_binary_request(data):
+            return jsonify({'error': 'Invalid binary operation request'}), 400
+        
+        auto1 = self._dict_to_automate(data['automaton1'])
+        auto2 = self._dict_to_automate(data['automaton2'])
+        
+        operations = {
+            'union': self.gestionnaire.union_automates,
+            'intersection': self.gestionnaire.intersection_automates_v2,
+            'concatenation': self.gestionnaire.concatenation_automates
+        }
+        
+        if operation_name not in operations:
+            return jsonify({'error': f'Unknown operation: {operation_name}'}), 400
+        
+        result_automate = operations[operation_name](auto1, auto2)
+        result = self._automate_to_dict(result_automate)
+        
+        return jsonify({
+            'success': True,
+            'automaton': result,
+            'operation': operation_name,
+            'message': f'{operation_name.title()} completed successfully'
+        })
+    
+    def _create_success_response(self, data: dict, message: str = None) -> dict:
+        """Crée une réponse de succès standardisée"""
+        response = {'success': True}
+        response.update(data)
+        if message:
+            response['message'] = message
+        return response
+
+    def _create_error_response(self, error: str, code: int = 400) -> tuple:
+        """Crée une réponse d'erreur standardisée"""
+        return jsonify({'error': error}), code
+    
+    def _get_json_data(self, required_fields: list = None) -> dict:
+        """Récupère et valide les données JSON de la requête"""
+        data = request.get_json()
+        if not data:
+            raise ValueError("No JSON data provided")
+        
+        if required_fields:
+            missing = [field for field in required_fields if field not in data]
+            if missing:
+                raise ValueError(f"Missing fields: {', '.join(missing)}")
+        
+        return data
+
 
     def _dict_to_automate(self, data: Dict[str, Any]) -> Automate:
         """Convert dictionary to Automate object"""

@@ -6,6 +6,7 @@ from .Mot import Mot
 from .Langage import Langage
 from .Automate import Automate, ADC, AFDC, AND, AFND, AFNS, AutomateMinimal
 from .Etat import Etat
+from .RegexSolver import RegexSystemSolver
 
 
 class AlphabetError(Exception):
@@ -33,27 +34,45 @@ class LangageReconnaissable(Langage):
             self.automate = AutomateMinimal(self)
 
     def _generer_mots_depuis_automate(self, longueur_max: int) -> Set[Mot]:
-        """Génère les mots acceptés par l'automate jusqu'à une longueur maximale."""
         if self.automate is None:
             return set()
-        
-        mots = set()
-        
-        def explorer(etat: Etat, mot_courant: str, longueur: int) -> None:
-            if longueur > longueur_max:
-                return
-            
-            if etat.est_final:
-                mots.add(Mot(mot_courant))
-            
-            if etat in self.automate.transitions:
-                for symbole in self.automate.transitions[etat]:
-                    for dest in self.automate.transitions[etat][symbole]:
-                        explorer(dest, mot_courant + symbole, longueur + 1)
-        
-        explorer(self.automate.etat_initial, "", 0)
-        return mots
 
+        mots = set()
+        # Initialiser avec l'état initial et le mot vide
+        q = deque([(self.automate.etat_initial, Mot("", self.automate.alphabet))])
+        # Visited pour éviter les cycles et la redondance, peut être (etat, mot_tuple)
+        # Ou simplement (etat, longueur_mot) pour éviter la génération infinie
+        visited = {(self.automate.etat_initial, "")} 
+
+        while q:
+            current_state, current_word = q.popleft()
+
+            if current_state.est_final:
+                mots.add(current_word)
+
+            if len(current_word.value) >= longueur_max: # Limite la longueur
+                continue
+
+            # Assurez-vous que current_state est dans les clés de transitions
+            if current_state in self.automate.transitions:
+                # Itérer sur les symboles et leurs destinations
+                for symbol, destinations in self.automate.transitions[current_state].items():
+                    for next_state in destinations:
+                        next_word_value = current_word.value + symbol
+                        next_word = Mot(next_word_value, self.automate.alphabet)
+
+                        if (next_state, next_word_value) not in visited:
+                            visited.add((next_state, next_word_value))
+                            q.append((next_state, next_word))
+
+            # Gérer les epsilon transitions si l'automate les supporte
+            if hasattr(self.automate, 'epsilon') and self.automate.epsilon in self.automate.transitions.get(current_state, {}):
+                for next_state_epsilon in self.automate.transitions[current_state][self.automate.epsilon]:
+                    if (next_state_epsilon, current_word.value) not in visited: # Mot reste le même
+                        visited.add((next_state_epsilon, current_word.value))
+                        q.append((next_state_epsilon, current_word))
+        return mots
+    
     def _verifier_automate_defini(self) -> None:
         """Vérifie qu'un automate est défini pour le langage."""
         if self.automate is None:
@@ -279,213 +298,253 @@ class LangageReconnaissable(Langage):
         return self._theoreme_kleene_construction(self.automate)
 
     def _theoreme_kleene_construction(self, automate: Automate) -> str:
-        """Application du théorème de Kleene pour la construction."""
+        """Convertit un automate en expression régulière via élimination d'états."""
         afdc = self._convertir_vers_afdc(automate)
         
-        # Implémentation simplifiée de l'algorithme d'élimination d'états
-        # TODO: Implémenter l'algorithme complet d'élimination d'états
-        return "L"  # Placeholder
-
-    # ==================== UTILITAIRES POUR LEMMES D'ARDEN ====================
-
-    @staticmethod
-    def _decomposer_expression(expr: str, alphabet: Set[str], variables: Set[str]) -> List[str]:
-        """Découpe l'expression en symboles reconnus : variables, alphabet, opérateurs."""
-        tokens = re.findall(r'[A-Za-z0-9]+|[+*()]', expr)
-        sequence = []
+        # Créer un système d'équations
+        systeme = {}
+        for etat in afdc.etats:
+            expr = []
+            if etat.est_initial:
+                expr.append('e')  # Epsilon pour l'état initial
+            for symbole, destinations in afdc.transitions.get(etat, {}).items():
+                for dest in destinations:
+                    expr.append(f"{symbole}{dest.nom}")
+            systeme[etat.nom] = '+'.join(expr) if expr else '∅'
         
-        for token in tokens:
-            if token in ['+', '*', '(', ')']:
-                sequence.append(token)
-                continue
-                
-            i = 0
-            while i < len(token):
-                match = False
-                
-                # Vérifier variables (ordre par longueur décroissante)
-                for var in sorted(variables, key=len, reverse=True):
-                    if token[i:i+len(var)] == var:
-                        sequence.append(var)
-                        i += len(var)
-                        match = True
-                        break
-                
-                if match:
-                    continue
-                    
-                # Vérifier alphabet (ordre par longueur décroissante)
-                for sym in sorted(alphabet, key=len, reverse=True):
-                    if token[i:i+len(sym)] == sym:
-                        sequence.append(sym)
-                        i += len(sym)
-                        match = True
-                        break
-                
-                if not match:
-                    sequence.append(token[i])
-                    i += 1
-                    
-        return sequence
+        # Résoudre avec le lemme d'Arden
+        variables = {etat.nom for etat in afdc.etats}
+        solutions = self.appliquer_lemmes_arden(systeme, afdc.alphabet, variables)
+        
+        # Récupérer l'expression pour les états finaux
+        final_expr = []
+        for etat in afdc.etats_finaux:
+            if etat.nom in solutions:
+                final_expr.append(solutions[etat.nom])
+        
+        return '+'.join(final_expr) if final_expr else '∅'
+
+# ==================== UTILITAIRES POUR LEMMES D'ARDEN ====================
 
     @staticmethod
-    def _verifier_alphabet(expr: str, alphabet: Set[str], variables: Set[str]) -> Tuple[bool, Optional[str]]:
-        """Vérifie que tous les symboles dans expr sont reconnus."""
-        autorises = set(alphabet) | set(variables) | {'+', '*', '(', ')'}
-        symboles = LangageReconnaissable._decomposer_expression(expr, alphabet, variables)
-        
-        for s in symboles:
-            if s not in autorises:
-                return False, s
-        return True, None
-
-    @staticmethod
-    def _substituer(expr: str, solutions: Dict[str, str]) -> str:
-        """Substitue les variables par leurs solutions dans l'expression."""
-        if not solutions:
-            return expr
-            
-        # Trier par longueur décroissante pour éviter les substitutions partielles
-        solutions_triees = sorted(solutions.items(), key=lambda x: len(x[0]), reverse=True)
-        
-        for var, val in solutions_triees:
-            # Ajouter parenthèses si nécessaire
-            val_substitue = f"({val})" if ('+' in val or ('*' in val and len(val) > 1)) else val
-            
-            # Pattern pour éviter les substitutions partielles
-            pattern = r'\b' + re.escape(var) + r'\b'
-            expr = re.sub(pattern, val_substitue, expr)
-        
-        # Nettoyer les + consécutifs et en début/fin
-        expr = re.sub(r'\+{2,}', '+', expr)
-        expr = expr.strip('+')
-        
+    def appliquer_lemmes_arden(systeme: Dict[str, str],):
+        solver = RegexSystemSolver()
+        for eqn in systeme:
+            var, exp = eqn.strip(" ").split("=")
+            print(var, "=", exp)
+            solver.add_equation(var, exp)
+    
+        order = solver.compute_elimination_order()
+        solutions = solver.solve_system(elimination_order=order)
+        print(solutions)
+        var, expr = solver.find_shortest_resolved()
         return expr
 
-    @staticmethod
-    def _analyser_equation_auto_reference(var: str, expr: str) -> Optional[Tuple[str, str]]:
-        """Analyse une équation de la forme X = αX + β et retourne (α, β)."""
-        termes = [t.strip() for t in expr.split('+') if t.strip()]
+   # =================== Automate vers Regex ==========================
+    @classmethod
+    def arden_dfa_to_regex(cls, automaton):
+        states = automaton["states"]
+        transitions = automaton["transitions"]
+        initial = automaton["initial_state"]
+        finals = set(automaton["final_states"])
         
-        alpha_parts = []
-        beta_parts = []
+        # Initialisation des équations
+        equations = {}
+        for state in states:
+            equations[state] = {
+                'to': {},
+                'const': 'ε' if state in finals else '∅'
+            }
         
-        for terme in termes:
-            if var in terme:
-                if terme == var:
-                    alpha_parts.append('e')  # coefficient 1 (epsilon)
-                elif terme.endswith(var):
-                    coeff = terme[:-len(var)]
-                    alpha_parts.append(coeff if coeff else 'e')
-                else:
-                    return None  # Variable pas à la fin, forme plus complexe
+        # Remplir les transitions
+        for t in transitions:
+            src = t['source']
+            sym = t['symbol']
+            dst = t['destination']
+            if dst in equations[src]['to']:
+                old_expr = equations[src]['to'][dst]
+                equations[src]['to'][dst] = cls._create_union(old_expr, sym)
             else:
-                beta_parts.append(terme)
-        
-        alpha = '+'.join(alpha_parts) if alpha_parts else ''
-        beta = '+'.join(beta_parts) if beta_parts else 'e'
-        
-        return alpha, beta
+                equations[src]['to'][dst] = sym
 
-    @staticmethod
-    def _appliquer_arden(alpha: str, beta: str) -> str:
-        """Applique le lemme d'Arden : X = αX + β devient X = α*β."""
-        if not alpha or alpha == 'e':
-            return beta
-        elif not beta or beta == 'e':
-            return f"{alpha}*"
-        else:
-            alpha_paren = f"({alpha})" if '+' in alpha else alpha
-            beta_paren = f"({beta})" if '+' in beta else beta
-            return f"{alpha_paren}*{beta_paren}"
-
-    @staticmethod
-    def _trouver_equations_resolvables(systeme: List[Tuple[str, str]], 
-                                      alphabet: Set[str], 
-                                      variables: Set[str], 
-                                      solutions: Dict[str, str]) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
-        """Identifie les équations résolvables dans le système."""
-        resolvables = []
-        non_resolvables = []
+        # États à éliminer (sauf l'état initial)
+        states_to_eliminate = [s for s in states if s != initial]
         
-        for var, expr in systeme:
-            # Substituer les variables déjà résolues
-            expr_sub = LangageReconnaissable._substituer(expr, solutions)
+        for k in states_to_eliminate:
+            # Résoudre l'équation pour l'état k
+            expr_kk = equations[k]['to'].get(k, '∅')
+            other_terms = {j: expr for j, expr in equations[k]['to'].items() if j != k}
+            const_k = equations[k]['const']
             
-            # Vérifier l'alphabet
-            ok, symbole_invalide = LangageReconnaissable._verifier_alphabet(expr_sub, alphabet, variables)
-            if not ok:
-                raise AlphabetError(f"Symbole inconnu '{symbole_invalide}' dans l'expression de {var}")
+            # Application du lemme d'Arden : R = A*B où A est la boucle, B le reste
+            if expr_kk == '∅':
+                # Pas de boucle : Rk = const_k + Σ(transitions vers autres états)
+                Rk_expr = {'to': other_terms, 'const': const_k}
+            else:
+                # Il y a une boucle : Rk = A*(B + const_k)
+                # où A = expr_kk, B = autres transitions
+                
+                # Appliquer A* aux autres termes
+                new_terms = {}
+                for j, expr in other_terms.items():
+                    # A* . expr
+                    concat_result = cls._create_concatenation(f"({expr_kk})*", expr)
+                    new_terms[j] = concat_result
+                
+                # Appliquer A* à la constante
+                if const_k == '∅':
+                    new_const = '∅'
+                else:
+                    # A* . const_k
+                    new_const = cls._create_concatenation(f"({expr_kk})*", const_k)
+                
+                Rk_expr = {'to': new_terms, 'const': new_const}
             
-            # Analyser les variables présentes
-            symboles = LangageReconnaissable._decomposer_expression(expr_sub, alphabet, variables)
-            vars_presentes = [s for s in symboles if s in variables and s != var]
-            
-            if not vars_presentes:
-                # Aucune autre variable : équation résoluble
-                if var in symboles:
-                    # Auto-référence : appliquer Arden
-                    resultat = LangageReconnaissable._analyser_equation_auto_reference(var, expr_sub)
-                    if resultat:
-                        alpha, beta = resultat
-                        solution = LangageReconnaissable._appliquer_arden(alpha, beta)
-                        resolvables.append((var, solution))
+            # Substituer Rk dans les autres équations
+            for i in states:
+                if i == k or i not in equations:
+                    continue
+                if k not in equations[i]['to']:
+                    continue
+                    
+                expr_ik = equations[i]['to'][k]
+                del equations[i]['to'][k]  # Supprimer le terme contenant k
+                
+                # Ajouter les contributions de Rk_expr
+                for j, expr_kj in Rk_expr['to'].items():
+                    # expr_ik . expr_kj
+                    new_expr = cls._create_concatenation(expr_ik, expr_kj)
+                    if j in equations[i]['to']:
+                        old_expr = equations[i]['to'][j]
+                        equations[i]['to'][j] = cls._create_union(old_expr, new_expr)
                     else:
-                        non_resolvables.append((var, expr_sub))
-                else:
-                    # Pas d'auto-référence : solution directe
-                    resolvables.append((var, expr_sub))
-            else:
-                # Contient d'autres variables : non résoluble pour l'instant
-                non_resolvables.append((var, expr_sub))
+                        equations[i]['to'][j] = new_expr
+                
+                # Traiter le terme constant
+                if Rk_expr['const'] != '∅':
+                    new_const_term = cls._create_concatenation(expr_ik, Rk_expr['const'])
+                    if equations[i]['const'] == '∅':
+                        equations[i]['const'] = new_const_term
+                    else:
+                        equations[i]['const'] = cls._create_union(equations[i]['const'], new_const_term)
+            
+            # Supprimer l'état k des équations
+            del equations[k]
         
-        return resolvables, non_resolvables
-    
+        # Résoudre l'équation finale pour l'état initial
+        if initial in equations[initial]['to']:
+            loop_expr = equations[initial]['to'][initial]
+        else:
+            loop_expr = '∅'
+        const_expr = equations[initial]['const']
+        
+        # Application finale du lemme d'Arden
+        if loop_expr == '∅':
+            result = const_expr
+        else:
+            # R = A*B où A = loop_expr, B = const_expr
+            if const_expr == '∅':
+                result = '∅'
+            else:
+                result = cls._create_concatenation(f"({loop_expr})*", const_expr)
+        
+        return cls.simplify_regex(result)
 
     @classmethod
-    def lemmes_arden (cls, systeme: List[Tuple[str, str]], 
-                              alphabet: Set[str], 
-                              variables: Set[str], max_iter: int = 50) -> Tuple[Optional[Dict[str, str]], 
-                                                          Optional[List[Tuple[str, str]]], 
-                                                          Optional[str]]:
-            return cls.appliquer_lemmes_arden(systeme, alphabet, variables, max_iter)
+    def _create_union(cls, expr1, expr2):
+        """Crée une union en gérant les cas particuliers"""
+        if expr1 == '∅':
+            return expr2
+        if expr2 == '∅':
+            return expr1
+        if expr1 == expr2:  # Idempotence
+            return expr1
+        return f"({expr1}+{expr2})"
 
-    def appliquer_lemmes_arden(self, systeme: List[Tuple[str, str]], 
-                              alphabet: Set[str], 
-                              variables: Set[str], max_iter: int = 50) -> Tuple[Optional[Dict[str, str]], 
-                                                          Optional[List[Tuple[str, str]]], 
-                                                          Optional[str]]:
-        """Résout le système d'équations en appliquant les lemmes d'Arden."""
-        solutions = {}
-        systeme_courant = systeme.copy()
-        max_iterations = max_iter
-        
-        for iteration in range(max_iterations):
-            try:
-                resolvables, non_resolvables = self._trouver_equations_resolvables(
-                    systeme_courant, alphabet, variables, solutions
-                )
-            except AlphabetError as e:
-                return None, None, str(e)
-            
-            # Si aucune équation résoluble, arrêter
-            if not resolvables:
-                break
-            
-            # Ajouter les nouvelles solutions
-            for var, sol in resolvables:
-                solutions[var] = sol
-            
-            # Mettre à jour le système pour la prochaine itération
-            systeme_courant = non_resolvables
-            
-            # Si plus d'équations, terminé
-            if not systeme_courant:
-                break
-        
-        return solutions, systeme_courant, None
+    @classmethod
+    def _create_concatenation(cls, expr1, expr2):
+        """Crée une concaténation en gérant les cas particuliers"""
+        if expr1 == '∅' or expr2 == '∅':
+            return '∅'
+        if expr1 == 'ε':
+            return expr2
+        if expr2 == 'ε':
+            return expr1
+        return f"{expr1}{expr2}"
 
-    # ==================== LEMMES ET VÉRIFICATIONS ====================
+    @classmethod
+    def simplify_regex(cls, expr):
+        """Simplifie une expression régulière selon les propriétés algébriques"""
+        if not expr or expr == '':
+            return 'ε'
+        
+        # Cas de base
+        if expr == '∅':
+            return '∅'
+        if expr == 'ε':
+            return 'ε'
+        
+        # Appliquer les simplifications de manière itérative
+        prev_expr = None
+        current_expr = expr
+        
+        while prev_expr != current_expr:
+            prev_expr = current_expr
+            current_expr = cls._apply_simplification_rules(current_expr)
+        
+        return current_expr
+
+    @classmethod
+    def _apply_simplification_rules(cls, expr):
+        """Applique une passe de simplification"""
+        
+        # 1. Neutralité de ε dans la concaténation
+        expr = re.sub(r'ε([a-zA-Z0-9(])', r'\1', expr)  # ε.X -> X
+        expr = re.sub(r'([a-zA-Z0-9)])ε', r'\1', expr)  # X.ε -> X
+        expr = expr.replace('ε', '')  # Supprimer les ε isolés
+        
+        # 2. Élément absorbant ∅ dans la concaténation
+        expr = re.sub(r'∅[^+)]*', '∅', expr)  # ∅.X -> ∅
+        expr = re.sub(r'[^+(]*∅', '∅', expr)  # X.∅ -> ∅
+        
+        # 3. Neutralité de ∅ dans l'union
+        expr = re.sub(r'\(∅\+([^)]+)\)', r'\1', expr)  # (∅+X) -> X
+        expr = re.sub(r'\(([^)]+)\+∅\)', r'\1', expr)  # (X+∅) -> X
+        expr = re.sub(r'^∅\+', '', expr)  # ∅+X -> X (début)
+        expr = re.sub(r'\+∅$', '', expr)  # X+∅ -> X (fin)
+        expr = re.sub(r'\+∅\+', '+', expr)  # X+∅+Y -> X+Y
+        
+        # 4. Idempotence de l'union : X+X -> X
+        expr = re.sub(r'\(([^)]+)\+\1\)', r'\1', expr)
+        
+        # 5. Propriétés des itérations
+        expr = re.sub(r'∅\*', 'ε', expr)  # ∅* -> ε
+        expr = re.sub(r'ε\*', 'ε', expr)  # ε* -> ε
+        expr = re.sub(r'\(([^)]*)\*\)\*', r'(\1)*', expr)  # (X*)* -> X*
+        
+        # 6. Simplifications avec L*L = L+ (représenté comme LL*)
+        expr = re.sub(r'([a-zA-Z0-9]+)\*\1', r'\1\1*', expr)  # X*X -> XX* (= X+)
+        expr = re.sub(r'([a-zA-Z0-9]+)\1\*', r'\1\1*', expr)  # XX* -> XX* (déjà simplifié)
+        
+        # 7. Distributivité : factorisation
+        # A(B+C) déjà géré par la construction
+        # (B+C)A -> BA+CA pourrait être ajouté si nécessaire
+        
+        # 8. Nettoyer les parenthèses inutiles
+        expr = re.sub(r'\(([^+()]*)\)', r'\1', expr)  # (X) -> X si pas d'union
+        
+        # 9. Nettoyer les expressions vides
+        expr = expr.replace('()', '')
+        expr = expr.strip('+')
+        
+        # 10. Gérer les cas où il ne reste rien
+        if not expr or expr == '':
+            return 'ε'
+            
+        return expr
+
+  
+
 
     def lemme_pompage_verification(self, mot: Mot) -> Tuple[bool, Dict[str, Any]]:
         """Vérifie le lemme de pompage pour un mot."""
