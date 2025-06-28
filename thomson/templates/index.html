@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Constructeur AFN</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Constructeur AFN</h1>
+            <p>Construction d'Automates Finis Non-déterministes à partir d'expressions régulières</p>
+        </div>
+
+        <div class="input-section">
+            <div class="input-group">
+                <label for="expression">Expression régulière:</label>
+                <input type="text" 
+                       id="expression" 
+                       class="expression-input" 
+                       placeholder="Ex: (a+b)*" 
+                       value="(a+b)*">
+            </div>
+            
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="construireAFN()">
+                    🚀 Construire AFN
+                </button>
+                <button class="btn btn-secondary" onclick="effacer()">
+                    🗑️ Effacer
+                </button>
+                <button class="btn btn-info" onclick="toggleInstructions()">
+                    ℹ️ Instructions
+                </button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Construction de l'AFN en cours...</p>
+        </div>
+
+        <div class="result-section" id="resultSection" style="display: none;">
+            <div class="result-card">
+                <div class="result-header">
+                    <h2 class="result-title">📊 Résultat AFN</h2>
+                    <div class="stats" id="stats"></div>
+                </div>
+                
+                <div class="afn-details" id="afnDetails"></div>
+            </div>
+        </div>
+
+        <div class="instructions" id="instructions" style="display: none;">
+            <h3>📋 Instructions d'utilisation</h3>
+            <ul>
+                <li><strong>+</strong> pour l'union (ex: a+b)</li>
+                <li><strong>*</strong> pour l'étoile de Kleene (ex: a*)</li>
+                <li><strong>()</strong> pour les groupements (ex: (a+b)*)</li>
+                <li><strong>ε</strong> pour l'expression vide</li>
+                <li><strong>∅</strong> pour le langage vide</li>
+                <li>La concaténation est implicite (ex: ab)</li>
+            </ul>
+            
+            <h3>🎯 Exemples</h3>
+            <div class="examples">
+                <button class="example-btn" onclick="setExample('(a+b)*')">
+                    (a+b)*
+                </button>
+                <button class="example-btn" onclick="setExample('a*b+c')">
+                    a*b+c
+                </button>
+                <button class="example-btn" onclick="setExample('(ab)*+c*')">
+                    (ab)*+c*
+                </button>
+                <button class="example-btn" onclick="setExample('a(b+c)*d')">
+                    a(b+c)*d
+                </button>
+                <button class="example-btn" onclick="setExample('(a+ε)b*')">
+                    (a+ε)b*
+                </button>
+            </div>
+        </div>
+
+        <div id="errorMessage"></div>
+    </div>
+
+    <script>
+        function construireAFN() {
+            const expression = document.getElementById('expression').value.trim();
+            
+            if (!expression) {
+                showError('Veuillez entrer une expression régulière.');
+                return;
+            }
+
+            showLoading(true);
+            hideError();
+
+            fetch('/construire', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ expression: expression })
+            })
+            .then(response => response.json())
+            .then(data => {
+                showLoading(false);
+                if (data.success) {
+                    afficherResultat(data.afn, expression);
+                } else {
+                    showError(data.error);
+                }
+            })
+            .catch(error => {
+                showLoading(false);
+                showError('Erreur de communication avec le serveur: ' + error.message);
+            });
+        }
+
+        function afficherResultat(afn, expression) {
+            const resultSection = document.getElementById('resultSection');
+            const stats = document.getElementById('stats');
+            const afnDetails = document.getElementById('afnDetails');
+
+            stats.innerHTML = `
+                <div class="stat-item">États: ${afn.stats.nb_etats}</div>
+                <div class="stat-item">Alphabet: ${afn.stats.nb_alphabet}</div>
+                <div class="stat-item">Transitions: ${afn.stats.nb_transitions}</div>
+            `;
+
+            afnDetails.innerHTML = `
+                <div class="detail-card">
+                    <div class="detail-title">Expression analysée</div>
+                    <div class="detail-content">${expression}</div>
+                </div>
+                
+                <div class="detail-card">
+                    <div class="detail-title">États</div>
+                    <div class="detail-content">{${afn.etats.join(', ')}}</div>
+                </div>
+                
+                <div class="detail-card">
+                    <div class="detail-title">Alphabet</div>
+                    <div class="detail-content">{${afn.alphabet.join(', ')}}</div>
+                </div>
+                
+                <div class="detail-card">
+                    <div class="detail-title">État initial</div>
+                    <div class="detail-content">${afn.etat_initial}</div>
+                </div>
+                
+                <div class="detail-card">
+                    <div class="detail-title">États finaux</div>
+                    <div class="detail-content">{${afn.etats_finaux.join(', ')}}</div>
+                </div>
+                
+                <div class="detail-card" style="grid-column: 1 / -1;">
+                    <div class="detail-title">Transitions</div>
+                    <div class="detail-content">
+                        ${genererTableauTransitions(afn.transitions)}
+                    </div>
+                </div>
+            `;
+
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function genererTableauTransitions(transitions) {
+            if (transitions.length === 0) {
+                return '<p>Aucune transition</p>';
+            }
+
+            let html = `
+                <table class="transitions-table">
+                    <thead>
+                        <tr>
+                            <th>État source</th>
+                            <th>Symbole</th>
+                            <th>État destination</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            transitions.forEach(t => {
+                html += `
+                    <tr>
+                        <td>${t.source}</td>
+                        <td>${t.symbole}</td>
+                        <td>${t.destination}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function effacer() {
+            document.getElementById('expression').value = '';
+            document.getElementById('resultSection').style.display = 'none';
+            hideError();
+        }
+
+        function toggleInstructions() {
+            const instructions = document.getElementById('instructions');
+            instructions.style.display = instructions.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function setExample(example) {
+            document.getElementById('expression').value = example;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.innerHTML = `<div class="error-message">${message}</div>`;
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').innerHTML = '';
+        }
+
+        document.getElementById('expression').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                construireAFN();
+            }
+        });
+
+        window.addEventListener('load', function() {
+            setTimeout(construireAFN, 500);
+        });
+    </script>
+</body>
+</html>
