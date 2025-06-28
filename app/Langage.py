@@ -10,7 +10,7 @@ class Langage:
     
     def __init__(self, mots: Optional[Set[Mot]] = None, 
                  alphabet: Optional[Set[str]] = None, 
-                 est_infini : bool = True,
+                 langage_fini : bool = True,
                 valeur_max : int = 1_000_000) -> None:
         """
         Initialise un langage.
@@ -21,7 +21,7 @@ class Langage:
         """
         self.mots = set(mots) if mots is not None else set()
         self.alphabet = set(alphabet) if alphabet is not None else set()
-        self.langage_fini = est_infini
+        self.langage_fini = langage_fini
         self.valeur_max = valeur_max
 
         if alphabet is None and mots:
@@ -261,6 +261,30 @@ class Langage:
     def __repr__(self) -> str:
         return f"Langage({self.mots}, {self.alphabet})"
 
+    def accepte(self, mot: Mot) -> bool:
+        return mot in self.mots
+    
+    @staticmethod
+    def depuis_automate(automate, longueur_max: int = 3) -> 'Langage':
+        """
+        Construit un langage fini (ensemble de mots) accepté par un automate donné,
+        en générant tous les mots jusqu'à une certaine longueur.
+        """
+        from itertools import product
+        mots_acceptes = set()
+
+        for l in range(longueur_max + 1):
+            for symbole_tuple in product(automate.alphabet, repeat=l):
+                mot_str = ''.join(symbole_tuple)
+                mot = Mot(mot_str, automate.alphabet)
+                try:
+                    if automate.accepte(mot):
+                        mots_acceptes.add(mot)
+                except Exception:
+                    # Pour éviter les erreurs ou boucles dans accepte()
+                    continue
+
+        return Langage(mots_acceptes, automate.alphabet, langage_fini=True, valeur_max=longueur_max)
 
 
 
@@ -319,4 +343,3 @@ if __name__ == "__main__":
     
     print(f"\nMots de longueur 2 dans L1*: {L1_etoile_3.mots_de_longueur(2)}")
     
-

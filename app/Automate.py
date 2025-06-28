@@ -3,6 +3,8 @@ from typing import Set, Dict, List, Optional
 from .Etat import Etat
 from .Langage import Langage
 from collections import deque
+from .Mot import Mot
+
 
 
 class Automate(ABC):
@@ -53,12 +55,16 @@ class Automate(ABC):
                 etat.est_final = True
                 
     def ajouter_transition(self, source: Etat, symbole: str, destination: Etat):
-        """Ajoute une transition à l'automate."""
+        """Ajoute une transition à l'automate et enregistre les états concernés."""
         if source not in self.transitions:
             self.transitions[source] = {}
         if symbole not in self.transitions[source]:
             self.transitions[source][symbole] = set()
         self.transitions[source][symbole].add(destination)
+
+        # Assure-toi d'ajouter les états dans l'ensemble des états
+        self.etats.add(source)
+        self.etats.add(destination)
 
 
     def fermeture_epsilon(self, etats: Set[Etat]) -> Set[Etat]:
@@ -257,21 +263,86 @@ class Automate(ABC):
         return True
     
     def afficher(self) -> str:
-        """Retourne une représentation textuelle de l'automate."""
         result = []
+        result.append(f"AD:")
         result.append(f"Alphabet: {sorted(self.alphabet)}")
-        result.append(f"États: {[str(e) for e in self.etats]}")
+        result.append(f"États: {[str(e) for e in sorted(self.etats, key=str)]}")
         result.append(f"État initial: {self.etat_initial}")
-        result.append(f"États finaux: {[str(e) for e in self.etats_finaux]}")
+        result.append(f"États finaux: {[str(e) for e in sorted(self.etats_finaux, key=str)]}")
         result.append("Transitions:")
         
-        for etat_source in sorted(self.transitions.keys(), key=str):
-            for symbole in sorted(self.transitions[etat_source].keys()):
-                destinations = self.transitions[etat_source][symbole]
-                for dest in sorted(destinations, key=str):
-                    result.append(f"  {etat_source} --{symbole}--> {dest}")
+        for etat_source in sorted(self.etats, key=str):
+            if etat_source in self.transitions:
+                for symbole in sorted(self.transitions[etat_source]):
+                    for dest in sorted(self.transitions[etat_source][symbole], key=str):
+                        result.append(f"  {etat_source} --{symbole}--> {dest}")
         
         return "\n".join(result)
+    
+
+    def union(self, other: 'Automate') -> 'Automate':
+        """
+        Retourne un automate représentant l’union de self et other avec :
+        - un état initial unique,
+        - un état final unique,
+        - des transitions ε depuis le nouvel état initial vers les anciens,
+        - des transitions ε depuis les anciens états finaux vers le nouvel état final.
+        """
+        from copy import deepcopy
+        from app.Automate import AFND  # ou `from . import AFND` si tu es déjà dans le même module
+
+        def renommer_etats(automate: 'Automate', prefix: str) -> Dict['Etat', 'Etat']:
+            mapping = {}
+            for etat in automate.etats:
+                nouveau = Etat(f"{prefix}_{etat.nom}")
+                nouveau.est_initial = False
+                nouveau.est_final = False
+                mapping[etat] = nouveau
+            return mapping
+
+        mapping_self = renommer_etats(self, "A1")
+        mapping_other = renommer_etats(other, "A2")
+
+        nouveaux_etats = set(mapping_self.values()).union(mapping_other.values())
+        nouvel_alphabet = self.alphabet.union(other.alphabet)
+
+        # Création des états initial et final uniques
+        nouvel_initial = Etat("I", est_initial=True)
+        nouvel_final = Etat("F", est_final=True)
+        nouveaux_etats.update({nouvel_initial, nouvel_final})
+
+        automate_resultat = AFND(
+            alphabet=nouvel_alphabet,
+            etats=nouveaux_etats,
+            etat_initial=nouvel_initial,
+            etats_finaux={nouvel_final}
+        )
+
+        # Transitions de self
+        for e_src in self.transitions:
+            for symb in self.transitions[e_src]:
+                for e_dst in self.transitions[e_src][symb]:
+                    automate_resultat.ajouter_transition(mapping_self[e_src], symb, mapping_self[e_dst])
+
+        # Transitions de other
+        for e_src in other.transitions:
+            for symb in other.transitions[e_src]:
+                for e_dst in other.transitions[e_src][symb]:
+                    automate_resultat.ajouter_transition(mapping_other[e_src], symb, mapping_other[e_dst])
+
+        # Transitions ε depuis le nouvel état initial
+        automate_resultat.ajouter_transition(nouvel_initial, '', mapping_self[self.etat_initial])
+        automate_resultat.ajouter_transition(nouvel_initial, '', mapping_other[other.etat_initial])
+
+        # Transitions ε vers le nouvel état final
+        for f in self.etats_finaux:
+            automate_resultat.ajouter_transition(mapping_self[f], '', nouvel_final)
+        for f in other.etats_finaux:
+            automate_resultat.ajouter_transition(mapping_other[f], '', nouvel_final)
+
+        return automate_resultat
+
+
     
     def matrice_a_automate(self, matrice: list[list]):
         """
@@ -321,18 +392,150 @@ class Automate(ABC):
                         self.ajouter_transition(source, symbole, destination)
     
 
+    def concatenation(self, a2: 'Automate') -> 'Automate':
+        """
+        Retourne un automate reconnaissant la concaténation de self et a2.
+        Renomme les états pour éviter les conflits.
+        Ajoute des transitions ε des états finaux de self vers l’état initial de a2.
+        """
+        from copy import deepcopy
+
+        def renommer_etats(automate: 'Automate', prefix: str) -> dict:
+            mapping = {}
+            for e in automate.etats:
+                mapping[e] = Etat(f"{prefix}_{e.nom}", est_initial=False, est_final=False)
+            return mapping
+
+        # Renommage pour éviter les conflits
+        map_self = renommer_etats(self, "A1")
+        map_a2 = renommer_etats(a2, "A2")
+
+        nouveaux_etats = set(map_self.values()).union(map_a2.values())
+        nouvel_alphabet = self.alphabet.union(a2.alphabet)
+
+        # Création du nouvel automate
+        automate_concat = AFND(
+            alphabet=nouvel_alphabet,
+            etats=nouveaux_etats,
+            etat_initial=map_self[self.etat_initial],
+            etats_finaux={map_a2[f] for f in a2.etats_finaux}
+        )
+
+        # Ajout des transitions de self
+        for e_src, trans in self.transitions.items():
+            for symb, dests in trans.items():
+                for e_dst in dests:
+                    automate_concat.ajouter_transition(map_self[e_src], symb, map_self[e_dst])
+
+        # Ajout des transitions de a2
+        for e_src, trans in a2.transitions.items():
+            for symb, dests in trans.items():
+                for e_dst in dests:
+                    automate_concat.ajouter_transition(map_a2[e_src], symb, map_a2[e_dst])
+
+        # Ajout des ε-transitions des finaux de self vers l'initial de a2
+        for f in self.etats_finaux:
+            automate_concat.ajouter_transition(map_self[f], '', map_a2[a2.etat_initial])
+            print(f"{map_self[f].nom} --ε--> {map_a2[a2.etat_initial].nom}")
+
+        return automate_concat
+
+
+    '''def miroir(self) -> 'Automate':
+        """
+        Retourne un automate reconnaissant le miroir (inverse) du langage de self.
+        """
+        # Nouveaux états (copie avec noms identiques)
+        nouveaux_etats = {Etat(e.nom, est_initial=False, est_final=False) for e in self.etats}
+        mapping = {e: Etat(e.nom) for e in self.etats}  # mapping ancien->nouveau
+
+        # Nouvel état initial = ancien état final (on suppose un seul ici, sinon ensemble initial)
+        # Ici on peut créer un état initial unique qui pointe par ε vers tous les anciens finaux
+        nouvel_etat_initial = Etat("I", est_initial=True)
+        nouveaux_etats.add(nouvel_etat_initial)
+
+        # Nouveaux états finaux = ancien état initial
+        etats_finaux = {mapping[self.etat_initial]}
+
+        # Création de l'automate résultat
+        automate_miroir = AFND(
+            alphabet=self.alphabet,
+            etats=nouveaux_etats,
+            etat_initial=nouvel_etat_initial,
+            etats_finaux=etats_finaux
+        )
+
+            # Transitions inversées
+        for e_src, trans in self.transitions.items():
+            for symb, dests in trans.items():
+                for e_dst in dests:
+                    # dans miroir, on inverse la direction
+                    automate_miroir.ajouter_transition(mapping[e_dst], symb, mapping[e_src])
+
+        # ε-transitions de nouvel état initial vers anciens états finaux
+        for ef in self.etats_finaux:
+            automate_miroir.ajouter_transition(nouvel_etat_initial, '', mapping[ef])
+
+        return automate_miroir
+    
+
+    def etoile_kleene(self) -> 'Automate':
+        """
+        Retourne l'automate reconnaissant l'étoile de Kleene du langage de self.
+        """
+        from copy import deepcopy
+
+        # Copie et renommage des états
+        map_self = {}
+        nouveaux_etats = set()
+        for e in self.etats:
+            nouveau = Etat(f"A_{e.nom}", est_initial=False, est_final=False)
+            map_self[e] = nouveau
+            nouveaux_etats.add(nouveau)
+
+        nouvel_alphabet = set(self.alphabet)
+
+        # Nouvel état initial et final
+        nouvel_etat_initial = Etat("I", est_initial=True, est_final=True)  # initial et final
+
+        nouveaux_etats.add(nouvel_etat_initial)
+
+        automate_etoile = AFND(
+            alphabet=nouvel_alphabet,
+            etats=nouveaux_etats,
+            etat_initial=nouvel_etat_initial,
+            etats_finaux={nouvel_etat_initial}
+        )
+
+        # Ajout des transitions de self
+        for e_src, trans in self.transitions.items():
+            for symb, dests in trans.items():
+                for e_dst in dests:
+                    automate_etoile.ajouter_transition(map_self[e_src], symb, map_self[e_dst])
+
+        # ε-transition de nouvel état initial vers ancien état initial (entrée)
+        automate_etoile.ajouter_transition(nouvel_etat_initial, '', map_self[self.etat_initial])
+
+        # ε-transitions des anciens états finaux vers ancien état initial (boucle)
+        for ef in self.etats_finaux:
+            automate_etoile.ajouter_transition(map_self[ef], '', map_self[self.etat_initial])
+            # Et ε-transition vers le nouvel état final aussi (qui est initial)
+            automate_etoile.ajouter_transition(map_self[ef], '', nouvel_etat_initial)
+
+        return automate_etoile '''
+
 
 
 class AD(Automate):
-    """Automate Déterministe Complet."""
+    """Automate Déterministe simple,on peut le completer,le minimiser"""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
         """Initialise un ADC."""
         super().__init__(alphabet, etats_finaux, etats, etat_initial)
         if not self.est_deterministe():
             raise ValueError("L'automate doit être déterministe")
-        self.completer()
+        #self.completer()
     
     def ajouter_transition(self, etat_source: Etat, symbole: str, etat_cible: Etat) -> None:
         """Ajoute une transition en respectant le déterminisme."""
@@ -369,59 +572,46 @@ class AD(Automate):
         """Retourne toujours True pour un ADC."""
         return True
     
-    def completer(self) -> None:
-        """Complète l'automate s'il ne l'est pas déjà."""
-        if super().est_complet():
-            return
-        
-        # Créer un état puits si nécessaire
-        etat_puits = Etat("puits")
-        self.etats.add(etat_puits)
-        
-        # Ajouter les transitions manquantes vers l'état puits
-        for etat in self.etats:
-            for symbole in self.alphabet:
-                if not super().obtenir_transitions(etat, symbole):
-                    self.ajouter_transition(etat, symbole, etat_puits)
-        
-        # L'état puits boucle sur lui-même
-        for symbole in self.alphabet:
-            self.ajouter_transition(etat_puits, symbole, etat_puits)
+    def completer(self) -> 'ADC':
+        """
+        Retourne un nouvel automate déterministe complet (ADC) en complétant l'automate actuel.
+        """
+        # Créer un nouvel automate avec les arguments requis
+        adc = AD(
+            alphabet=self.alphabet.copy(),
+            etats_finaux=self.etats_finaux.copy(),
+            etats=self.etats.copy(),
+            etat_initial=self.etat_initial
+        )
+
+        # Ajouter les transitions de self à adc
+        for source in self.transitions:
+            for symbole, destinations in self.transitions[source].items():
+                for dest in destinations:
+                    adc.ajouter_transition(source, symbole, dest)
+
+        # Ajouter l’état puits
+        etat_puits = Etat("puits", est_final=False)
+        adc.etats.add(etat_puits)
+
+        # Compléter les transitions manquantes vers puits
+        for etat in adc.etats:
+            for symbole in adc.alphabet:
+                if not adc.obtenir_transitions(etat, symbole):
+                    adc.ajouter_transition(etat, symbole, etat_puits)
+
+        # Compléter le puits avec des boucles sur lui-même
+        for symbole in adc.alphabet:
+            if not adc.obtenir_transitions(etat_puits, symbole):
+                adc.ajouter_transition(etat_puits, symbole, etat_puits)
+
+        return adc
+
     
     def afficher(self) -> str:
         """Affichage spécifique aux ADC."""
         return f"AD:\n{super().afficher()}"
 
-
-
-
-
-class ADC(AD):
-    """Automate Déterministe Complet."""
-    
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un ADC."""
-        super().__init__(alphabet, etats_finaux, etats, etat_initial)
-        if not self.est_deterministe():
-            raise ValueError("L'automate doit être déterministe")
-        if not self.est_complet():
-            raise ValueError("L'automate doit être complet")
-
-class AFDC(ADC):
-    """Automate Fini Déterministe Complet."""
-    
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
-        """Initialise un AFDC."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
-        if not self.est_fini():
-            raise ValueError("L'automate doit être fini")
-    
-    def est_fini(self) -> bool:
-        """Vérifie que l'automate est fini."""
-        return len(self.etats) < float('inf') and len(self.alphabet) < float('inf')
-    
     def minimiser(self) -> 'AFDC':
         """Retourne l'automate minimal équivalent."""
         # Algorithme de minimisation par classes d'équivalence
@@ -511,7 +701,7 @@ class AFDC(ADC):
         etats_finaux = {etat for etat in nouveaux_etats if etat.est_final}
         
         # Créer le nouvel automate
-        automate_minimal = AFDC(self.alphabet, nouveaux_etats, etat_initial_classe, etats_finaux)
+        automate_minimal = AFDC(self.alphabet, etats_finaux, nouveaux_etats, etat_initial_classe)
         
         # Ajouter les transitions
         for i, classe in enumerate(classes):
@@ -530,27 +720,162 @@ class AFDC(ADC):
                             break
         
         return automate_minimal
+
+
+
+class ADC(AD):
+    """Automate Déterministe Complet."""
+    
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
+        """Initialise un ADC."""
+        super().__init__(alphabet, etats_finaux, etats, etat_initial)
+        if not self.est_deterministe():
+            raise ValueError("L'automate doit être déterministe")
+        if not self.est_complet():
+            raise ValueError("L'automate doit être complet")
+
+class AFDC(ADC):
+    """Automate Fini Déterministe Complet."""
+    
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
+        """Initialise un AFDC."""
+        super().__init__(alphabet, etats_finaux, etats, etat_initial)
+        if not self.est_fini():
+            raise ValueError("L'automate doit être fini")
+        
+    
+    def est_fini(self) -> bool:
+        """Vérifie que l'automate est fini."""
+        return len(self.etats) < float('inf') and len(self.alphabet) < float('inf')
+    
+    
     
     def complementaire(self) -> 'AFDC':
-        """Retourne l'automate complémentaire."""
-        # Inverser les états finaux et non-finaux
+        """
+        Retourne le complémentaire de l'automate déterministe complet courant.
+        Nécessite que l'automate soit déterministe et complet.
+        """
+        if not self.est_deterministe() or not self.est_complet():
+            raise TypeError("L'automate doit être déterministe et complet (AFDC) pour calculer le complémentaire.")
+
+        # Nouveaux états finaux = tous les états sauf les actuels
         nouveaux_etats_finaux = self.etats - self.etats_finaux
-        
-        # Créer le nouvel automate
-        automate_comp = AFDC(self.alphabet.copy(), self.etats.copy(), 
-                            self.etat_initial, nouveaux_etats_finaux)
-        
-        # Copier les transitions
-        automate_comp.transitions = self.transitions.copy()
-        
-        return automate_comp
+
+        # Construction du complémentaire
+        complementaire = AFDC(
+            alphabet=self.alphabet,
+            etats=self.etats,
+            etat_initial=self.etat_initial,
+            etats_finaux=nouveaux_etats_finaux
+        )
+        complementaire.transitions = self.transitions.copy()
+
+        return complementaire
+
+
+    def canonisation(self) -> 'AutomateCanonique':
+        return AutomateCanonique(langage=self.langage)
+
+    
+    def langage_accepte(self, longueur_max: int = 5) -> Langage:
+        from app.Mot import Mot
+        from app.Langage import Langage
+
+        alphabet = self.alphabet
+        mots_acceptes = set()
+
+        def generer_mots(prefixe: str):
+            if len(prefixe) > longueur_max:
+                return
+            if self.accepte(prefixe):
+                mot_objet = Mot(prefixe, alphabet)
+                mots_acceptes.add(mot_objet)
+            for lettre in alphabet:
+                generer_mots(prefixe + lettre)
+
+        generer_mots("")
+
+        return Langage(mots_acceptes, alphabet, est_infini=False)
+
+    def accepte(self, mot: str) -> bool:
+        """
+        Vérifie si le mot est accepté par l'automate déterministe (AFD).
+        """
+        etat_courant = self.etat_initial
+        for symbole in mot:
+            transitions = self.obtenir_transitions(etat_courant, symbole)
+            if not transitions:
+                return False
+            # Comme c'est déterministe, on prend la seule transition
+            etat_courant = next(iter(transitions))
+        return etat_courant in self.etats_finaux
+    
+
+    def intersection(self, autre: 'AFDC') -> 'AFDC':
+        """
+        Renvoie un AFDC représentant l’intersection entre self et autre.
+        Hypothèse : self et autre sont des automates déterministes complets (AFDC).
+        """
+        if not isinstance(autre, AFDC):
+            raise TypeError("L'intersection ne peut se faire qu'entre deux AFDC.")
+
+        alphabet = self.alphabet.intersection(autre.alphabet)
+        if not alphabet:
+            raise ValueError("Les alphabets des deux automates doivent avoir une intersection non vide.")
+
+        nouveaux_etats = set()
+        transitions = {}
+        etats_finaux = set()
+        mapping = {}
+
+        # Création des états du produit
+        for e1 in self.etats:
+            for e2 in autre.etats:
+                nom = f"{e1.nom}_{e2.nom}"
+                est_initial = (e1 == self.etat_initial and e2 == autre.etat_initial)
+                est_final = (e1 in self.etats_finaux and e2 in autre.etats_finaux)
+                nouvel_etat = Etat(nom, est_initial=est_initial, est_final=est_final)
+                mapping[(e1, e2)] = nouvel_etat
+                nouveaux_etats.add(nouvel_etat)
+                if est_final:
+                    etats_finaux.add(nouvel_etat)
+
+        # Construction des transitions
+        for (e1, e2), etat_produit in mapping.items():
+            for symb in alphabet:
+                dest1 = list(self.transitions[e1][symb])[0]  # déterministe : un seul état
+                dest2 = list(autre.transitions[e2][symb])[0]
+                dest_etat = mapping[(dest1, dest2)]
+                if etat_produit not in transitions:
+                    transitions[etat_produit] = {}
+                if symb not in transitions[etat_produit]:
+                    transitions[etat_produit][symb] = set()
+                transitions[etat_produit][symb].add(dest_etat)
+
+        # Recherche de l’état initial
+        etat_initial = next((e for e in nouveaux_etats if e.est_initial), None)
+
+        # Création de l'automate résultant
+        automate_resultant = AFDC(
+            alphabet=alphabet,
+            etats=nouveaux_etats,
+            etat_initial=etat_initial,
+            etats_finaux=etats_finaux
+        )
+        automate_resultant.transitions = transitions
+
+        return automate_resultant
+
+
 
 
 class AND(Automate):
     """Automate Non Déterministe."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
         """Initialise un AND."""
         super().__init__(alphabet, etats_finaux, etats, etat_initial)
     
@@ -655,10 +980,10 @@ class AND(Automate):
 class AFND(AND):
     """Automate Fini Non Déterministe."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
         """Initialise un AFND."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
+        super().__init__(alphabet, etats_finaux, etats, etat_initial)
         if not self.est_fini():
             raise ValueError("L'automate doit être fini")
     
@@ -676,10 +1001,10 @@ class AFND(AND):
 class AFNS(AFND):
     """Automate Fini à Transitions Spontanées (ε-transitions)."""
     
-    def __init__(self, alphabet: Set[str], etats: Set[Etat], etat_initial: Etat, 
-                 etats_finaux: Set[Etat]) -> None:
+    def __init__(self, alphabet: Set[str], etats_finaux: Set[Etat], etats: Set[Etat],
+                 etat_initial: Etat) -> None:
         """Initialise un AFNS."""
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
+        super().__init__(alphabet, etats_finaux, etats, etat_initial)
         self.epsilon = ""  # Représentation d'epsilon
     
     def ajouter_transition_epsilon(self, etat_source: Etat, etat_cible: Etat) -> None:
@@ -825,154 +1150,131 @@ class AFNS(AFND):
         return afnd
 
 
-class AutomateCanonique(AFDC):
-    """Automate canonique selon le théorème de Myhill-Nerode."""
-    
-    def __init__(self, langage: Langage) -> None:
-        """Construit l'automate canonique d'un langage."""
+
+
+class AutomateCanonique:
+    def __init__(self, langage: Langage, suffixe_longueur_max: int = 3):
+        """
+        Initialise un automate canonique à partir d'un langage fini.
+        
+        Args:
+            langage: Langage fini sur lequel construire l'automate canonique.
+            suffixe_longueur_max: longueur max des suffixes testés pour la relation d'équivalence.
+        """
+        if langage.langage_fini is False:
+            raise ValueError("Le langage doit être fini pour construire un automate canonique.")
+        
         self.langage = langage
-        self.classes_equivalence = self._calculer_classes_equivalence()
+        self.alphabet = langage.alphabet
+        self.suffixe_longueur_max = suffixe_longueur_max
         
-        # Construire l'automate à partir des classes
-        alphabet = self._extraire_alphabet()
-        etats = self._creer_etats_depuis_classes()
-        etat_initial = self._determiner_etat_initial()
-        etats_finaux = self._determiner_etats_finaux()
+        self.etats: Dict[str, Etat] = {}  # clé = mot représentant la classe
+        self.transitions: Dict[Etat, Dict[str, Etat]] = {}  # transitions : état x symbole -> état
         
-        super().__init__(alphabet, etats, etat_initial, etats_finaux)
-        self._construire_transitions()
+        # Construire l'automate
+        self._construire_automate()
     
-    def _extraire_alphabet(self) -> Set[str]:
-        """Extrait l'alphabet du langage."""
-        alphabet = set()
-        for mot in self.langage.mots:
-            alphabet.update(set(mot))
-        return alphabet
-    
-    def _calculer_classes_equivalence(self) -> Dict[str, Set[str]]:
-        """Calcule les classes d'équivalence à droite."""
-        classes = {}
-        mots_traites = set()
+    def _sont_equivalents(self, u: Mot, v: Mot) -> bool:
+        """
+        Teste si deux mots u et v sont équivalents selon Myhill-Nerode:
+        Pour tout suffixe w (de longueur jusqu'à suffixe_longueur_max),
+        uw ∈ L ⇔ vw ∈ L
+        """
+        # Générer tous les suffixes w possibles sur l'alphabet jusqu'à longueur max
+        suffixes = self._generer_suffixes(max_len=self.suffixe_longueur_max)
         
-        # Commencer par le mot vide
-        mots_a_traiter = [""]
-        
-        while mots_a_traiter:
-            mot = mots_a_traiter.pop(0)
-            if mot in mots_traites:
-                continue
-            
-            mots_traites.add(mot)
-            classe = self.classe_equivalence(mot)
-            representant = min(classe)  # Choisir le plus petit comme représentant
-            
-            if representant not in classes:
-                classes[representant] = classe
-                
-                # Ajouter les dérivées pour exploration
-                for symbole in self._extraire_alphabet():
-                    nouveau_mot = mot + symbole
-                    if nouveau_mot not in mots_traites:
-                        mots_a_traiter.append(nouveau_mot)
-        
-        return classes
-    
-    def _creer_etats_depuis_classes(self) -> Set[Etat]:
-        """Crée les états depuis les classes d'équivalence."""
-        etats = set()
-        for representant in self.classes_equivalence:
-            etat = Etat(f"[{representant}]")
-            etats.add(etat)
-        return etats
-    
-    def _determiner_etat_initial(self) -> Etat:
-        """Détermine l'état initial (classe du mot vide)."""
-        for etat in self.etats:
-            if etat.nom == "[]":  # Classe du mot vide
-                return etat
-        raise ValueError("État initial non trouvé")
-    
-    def _determiner_etats_finaux(self) -> Set[Etat]:
-        """Détermine les états finaux."""
-        etats_finaux = set()
-        for representant, classe in self.classes_equivalence.items():
-            if any(self.langage.contient(mot) for mot in classe):
-                # Trouver l'état correspondant
-                for etat in self.etats:
-                    if etat.nom == f"[{representant}]":
-                        etats_finaux.add(etat)
-                        break
-        return etats_finaux
-    
-    def _construire_transitions(self):
-        """Construit les transitions entre les états."""
-        for representant in self.classes_equivalence:
-            etat_source = self._trouver_etat_par_nom(f"[{representant}]")
-            
-            for symbole in self.alphabet:
-                mot_derive = representant + symbole
-                classe_dest = self._trouver_classe_contenant(mot_derive)
-                
-                if classe_dest:
-                    etat_dest = self._trouver_etat_par_nom(f"[{classe_dest}]")
-                    self.ajouter_transition(etat_source, symbole, etat_dest)
-    
-    def _trouver_etat_par_nom(self, nom: str) -> Etat:
-        """Trouve un état par son nom."""
-        for etat in self.etats:
-            if etat.nom == nom:
-                return etat
-        raise ValueError(f"État {nom} non trouvé")
-    
-    def _trouver_classe_contenant(self, mot: str) -> Optional[str]:
-        """Trouve le représentant de la classe contenant un mot."""
-        for representant, classe in self.classes_equivalence.items():
-            if self.relation_equivalence_droite(mot, representant):
-                return representant
-        return None
-    
-    def relation_equivalence_droite(self, mot1: str, mot2: str) -> bool:
-        """Vérifie si deux mots sont équivalents à droite."""
-        # Deux mots sont équivalents à droite si pour tout suffixe w,
-        # mot1.w ∈ L ⟺ mot2.w ∈ L
-        
-        # Test avec suffixes courants (approximation)
-        suffixes_test = ["", "a", "b", "aa", "ab", "ba", "bb"]  # À adapter selon le contexte
-        
-        for suffixe in suffixes_test:
-            mot1_suffixe = mot1 + suffixe
-            mot2_suffixe = mot2 + suffixe
-            
-            if self.langage.contient(mot1_suffixe) != self.langage.contient(mot2_suffixe):
+        for w in suffixes:
+            uw = u.concatenation(w)
+            vw = v.concatenation(w)
+            if self.langage.accepte(uw) != self.langage.accepte(vw):
                 return False
-        
         return True
     
-    def classe_equivalence(self, mot: str) -> Set[str]:
-        """Retourne la classe d'équivalence d'un mot."""
-        classe = {mot}
+    def _generer_suffixes(self, max_len: int) -> List[Mot]:
+        """
+        Génère tous les mots (suffixes) sur l'alphabet jusqu'à longueur max_len (incluse).
+        """
+        from itertools import product
         
-        # Recherche d'autres mots équivalents (approximation)
-        mots_candidats = list(self.langage.mots) + [""]
+        suffixes = []
+        for l in range(max_len + 1):
+            for lettres in product(self.alphabet, repeat=l):
+                mot = Mot(''.join(lettres), list(self.alphabet))
+                suffixes.append(mot)
+        return suffixes
+    
+    def _trouver_classe_equivalence(self, mot: Mot) -> Etat:
+        """
+        Trouve ou crée un état représentant la classe d'équivalence du mot donné.
+        """
+        # Cherche un état existant équivalent
+        for rep_mot, etat in self.etats.items():
+            mot_rep = Mot(rep_mot, list(self.alphabet))
+            if self._sont_equivalents(mot, mot_rep):
+                return etat
         
-        for candidat in mots_candidats:
-            if candidat != mot and self.relation_equivalence_droite(mot, candidat):
-                classe.add(candidat)
+        # Sinon crée un nouvel état
+        nom_etat = mot.contenu if mot.contenu != '' else 'ε'
+        est_final = self.langage.accepte(mot)
+        nouvel_etat = Etat(nom_etat, est_initial=False, est_final=est_final)
         
-        return classe
+        # Associer l'automate à l'état pour pouvoir utiliser les méthodes d'accessibilité si besoin
+        nouvel_etat.automate = self  
+        
+        self.etats[mot.contenu] = nouvel_etat
+        return nouvel_etat
     
-    def nombre_classes_equivalence(self) -> int:
-        """Retourne le nombre de classes d'équivalence."""
-        return len(self.classes_equivalence)
+    def _construire_automate(self):
+        """
+        Construit l'automate canonique en explorant les classes d'équivalence.
+        """
+        # Etat initial = classe du mot vide
+        mot_vide = Mot("", list(self.alphabet))
+        etat_initial = self._trouver_classe_equivalence(mot_vide)
+        etat_initial.est_initial = True
+        
+        self.etat_initial = etat_initial
+        
+        # File pour exploration BFS des états
+        file = deque([etat_initial])
+        self.transitions[etat_initial] = {}
+        
+        while file:
+            etat_courant = file.popleft()
+            mot_courant = Mot(etat_courant.nom if etat_courant.nom != 'ε' else "", list(self.alphabet))
+            
+            for a in self.alphabet:
+                mot_suivant = mot_courant.concatenation(Mot(a, list(self.alphabet)))
+                etat_suivant = self._trouver_classe_equivalence(mot_suivant)
+                
+                if etat_courant not in self.transitions:
+                    self.transitions[etat_courant] = {}
+                
+                if a not in self.transitions[etat_courant]:
+                    self.transitions[etat_courant][a] = etat_suivant
+                
+                # Découverte d'un nouvel état
+                if etat_suivant not in self.transitions:
+                    self.transitions[etat_suivant] = {}
+                    file.append(etat_suivant)
     
-    def construire_depuis_langage(self, langage: Langage) -> None:
-        """Reconstruit l'automate depuis un nouveau langage."""
-        self.__init__(langage)
-    
-    def est_minimal(self) -> bool:
-        """Vérifie si l'automate est minimal."""
-        # Un automate canonique est par définition minimal
-        return True
+    def affiche(self):
+        """
+        Affiche l'automate (états, initiaux, finaux, transitions).
+        """
+        print(f"Alphabet: {self.alphabet}")
+        print(f"État initial: {self.etat_initial}")
+        print(f"États ({len(self.etats)}):")
+        for etat in self.etats.values():
+            fin_str = "(final)" if etat.est_final else ""
+            init_str = "(initial)" if etat.est_initial else ""
+            print(f"  - {etat} {init_str} {fin_str}")
+        
+        print("Transitions:")
+        for etat_src, trans in self.transitions.items():
+            for symb, etat_dst in trans.items():
+                print(f"  δ({etat_src}, {symb}) -> {etat_dst}")
+
 
 
 
@@ -993,9 +1295,9 @@ if __name__ == "__main__":
     print("1. Automate acceptant les mots finissant par 'a'")
     automate1 = Automate(
         alphabet={'a', 'b'},
+        etats_finaux={q1},
         etats={q0, q1},
-        etat_initial=q0,
-        etats_finaux={q1}
+        etat_initial=q0
     )
     
     # Ajout des transitions
@@ -1020,9 +1322,9 @@ if __name__ == "__main__":
     print("2. Automate non-déterministe (deux transitions pour 'a' depuis q0)")
     automate2 = Automate(
         alphabet={'a', 'b'},
+        etats_finaux={q2},
         etats={q0, q1, q2},
-        etat_initial=q0,
-        etats_finaux={q2}
+        etat_initial=q0
     )
     
     # Transitions non-déterministes
@@ -1042,29 +1344,80 @@ if __name__ == "__main__":
     
     print("\n" + "="*50 + "\n")
     
-    # Exemple 3: Conversion en matrice
-    print("3. Conversion automate → matrice")
-    matrice, etats_list, alphabet_list = automate1.automate_a_matrice()
     
-    print(f"États: {[str(e) for e in etats_list]}")
-    print(f"Alphabet: {alphabet_list}")
-    print("Matrice de transitions:")
-    for i, etat in enumerate(etats_list):
-        for j, symbole in enumerate(alphabet_list):
-            destinations = matrice[i][j]
-            if destinations:
-                dest_noms = [str(etats_list[k]) for k in destinations]
-                print(f"  {etat} --{symbole}--> {dest_noms}")
-    
-    print("\n" + "="*50 + "\n")
-    
-    # Exemple 4: Manipulation des transitions
-    print("4. Suppression de transitions")
-    print("Avant suppression:")
-    print(automate1.afficher())
-    
-    # Supprimer une transition
-    automate1.supprimer_transition(q1, 'b', q0)
-    print("\nAprès suppression de q1 --b--> q0:")
-    print(automate1.afficher())
-    print(f"Complet après suppression: {automate1.est_complet()}")
+
+    # Union des deux automates
+    print("\nAutomate Union :")
+    automate_union = automate1.union(automate2)
+    print(automate_union.afficher())
+
+    # Test de mots sur l'automate union
+    mots_test = ["a", "ba", "ab", "b", "bba", "", "aa"]
+    for mot in mots_test:
+        resultat = automate_union.reconnaitre_mot(mot)
+        print(f"Mot '{mot}': {'✓' if resultat else '✗'}")
+
+
+        # Définition des états de A1
+    q0 = Etat("q0", est_initial=True)
+    q1 = Etat("q1", est_final=True)
+    etats_A1 = {q0, q1}
+
+    # Définition des transitions de A1
+    transitions_A1 = {
+        q0: {'a': {q1}, 'b': {q0}},
+        q1: {'a': {q0}, 'b': {q1}}
+    }
+
+    # Définition de A1
+    A1 = AFDC(
+        alphabet={'a', 'b'},
+        etats=etats_A1,
+        etat_initial=q0,
+        etats_finaux={q1}
+    )
+    A1.transitions = transitions_A1
+
+    # Définition des états de A2
+    p0 = Etat("p0", est_initial=True)
+    p1 = Etat("p1", est_final=True)
+    etats_A2 = {p0, p1}
+
+    # Définition des transitions de A2
+    transitions_A2 = {
+        p0: {'a': {p1}, 'b': {p0}},
+        p1: {'a': {p1}, 'b': {p1}}
+    }
+
+    # Définition de A2
+    A2 = AFDC(
+        alphabet={'a', 'b'},
+        etats=etats_A2,
+        etat_initial=p0,
+        etats_finaux={p1}
+    )
+    A2.transitions = transitions_A2
+
+    # Test de l'intersection
+    A_inter = A1.intersection(A2)
+
+    print("=== Automate d'intersection A1 ∩ A2 ===")
+    print(A_inter.afficher()) 
+
+
+
+    print("\ncomplementaire de afdc:")
+    complt=A1.complementaire()
+    print(complt.afficher()) 
+
+    print("\nconcatenation de l'automate1 avec automate2:")
+    concat=automate1.concatenation(automate2)
+    print(concat.afficher()) 
+
+    print("\nmirroir de l'automate1:")
+    mirr=automate1.miroir()
+    print(mirr.afficher()) 
+
+    print("automate de kleene r de l'automate1:")
+    etoile=automate1.etoile_kleene()
+    print(etoile.afficher()) 

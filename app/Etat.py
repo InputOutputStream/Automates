@@ -60,7 +60,9 @@ class Etat:
         return f"Etat('{self.nom}')"
     
     def __eq__(self, other):
-        return isinstance(other, Etat) and self.nom == other.nom
+        if isinstance(other, Etat):
+            return self.nom == other.nom
+        return False
     
     def __hash__(self):
         return hash(self.nom)
